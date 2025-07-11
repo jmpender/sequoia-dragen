@@ -1,0 +1,783 @@
+---
+title: "Luna Dragen VSP"
+author: "Pender, J."
+date: "Last updated on `r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document: default
+  fig_caption: yes
+  pdf_document: null
+editor_options:
+  chunk_output_type: console
+---
+
+
+# Setting up working directory, packages
+```{r}
+setwd("~/sequencing-analysis/sequoia/outputs-sequoia/microorganisms_and_amr")
+rm(list = ls())
+
+library("jsonlite")
+library("dplyr")
+library("ggplot2")
+library("purrr")
+library("patchwork")
+library("tidyverse")
+library("stringr")
+
+```
+
+
+# Flatten to named row function for coverting sublist microorganisms or amr markers from a file into a data frame
+```{r}  
+# recursive function that takes a nested list and fills out the fields for the list of hits in a sample
+flatten_to_named_row <- function(x, field.prefix = NULL) {
+  result <- list() # initialize place to collect 
+
+  # loop over each field in the list
+  for (name in names(x)) {
+    full_name <- if (!is.null(field.prefix)) paste(field.prefix, name, sep = ".") else name
+    val <- x[[name]]
+
+    if (is.null(val)) {
+      result[[full_name]] <- NA
+
+      # handles cases such as '0.988, "Group 2"'
+    } else if (is.atomic(val) && length(val) == 1) {
+      # Single value → keep
+      result[[full_name]] <- val
+
+      # joins things like character[8] c("A", "B", "C")) into one string
+    } else if (is.atomic(val)) {
+      # Vector (no nesting) → collapse into single string
+      result[[full_name]] <- paste(val, collapse = ", ")
+
+      # handles sublists with atomic values only
+    } else if (is.list(val) && all(sapply(val, function(v) is.atomic(v) || is.null(v)))) {
+      # if field is a list of atomic values with no sublists, loop through each subfield and create compound name like associatedAmrMarkers.detected
+      for (subname in names(val)) {
+        subval <- val[[subname]]
+        sub_full_name <- paste(full_name, subname, sep = ".")
+        if (is.null(subval)) {
+          result[[sub_full_name]] <- NA
+          # if the subvalue is scalar, store as is:
+        } else if (length(subval) == 1) {
+          result[[sub_full_name]] <- subval
+          # if it's a vector, collapse it into a string:
+        } else {
+          result[[sub_full_name]] <- paste(subval, collapse = ", ")
+        }
+      }
+
+      # If the value is in a deeper nested list, handle it recursively.
+    } else {
+      # Deeper nested list → recurse
+      nested <- flatten_to_named_row(val, field.prefix = full_name)
+      result <- c(result, nested)
+    }
+  }
+  # Convert the list into a 1-row data frame
+  as.data.frame(result, stringsAsFactors = FALSE)
+}
+
+```
+
+# Load json files
+```{r}
+
+json_files_urinary <- list.files("../../inputs-sequoia/sequoia-upip/", pattern = "*.json", full.names = TRUE)
+df_urinary <- data.frame()
+
+json_files_respiratory <- list.files("../../inputs-sequoia/sequoia-rpip/", pattern = "*.json", full.names = TRUE)
+df_respiratory <- data.frame()
+
+# json_files_urinary.amrs.only <- list.files("../../inputs-sequoia/sequoia-upip-amr-markers-only/", pattern = "*.json", full.names = TRUE)
+# df_urinary <- data.frame()
+
+```
+
+# single file troubleshooting
+```{r}
+file <- "../../inputs-sequoia/sequoia-upip/0505-MOD-SOL.UPIP.report.json"
+json_data <- fromJSON(file, simplifyDataFrame = FALSE)
+
+microorganisms <- json_data.upip$targetReport$microorganisms
+amrMarkers <- json_data.rpip$targetReport$amrMarkers
+
+# apply the function to each list in the file
+df.microorganisms.single <- bind_rows(lapply(microorganisms, flatten_to_named_row))
+df.amr.markers.single <- bind_rows(lapply(amrMarkers, flatten_to_named_row))
+
+df.microorganisms.single$sample <- sub("\\..*", "", basename(file))
+df.amr.markers.single$sample <- sub("\\..*", "", basename(file))
+
+df.microorganisms.single$type <- case_when(
+      grepl("(^|-)INF$", df.microorganisms.single$sample) ~ "Influent",
+      grepl("(^|-)SOL$", df.microorganisms.single$sample) ~ "Solids",
+      TRUE ~ "Other"
+)  
+df.amr.markers.single$type <- case_when(
+      grepl("(^|-)INF$", df.amr.markers.single$sample) ~ "Influent",
+      grepl("(^|-)SOL$", df.amr.markers.single$sample) ~ "Solids",
+      TRUE ~ "Other" 
+)  
+
+df.microorganisms.single$relabund.rpkm <- as.numeric(df.microorganisms.single$rpkm) / sum(as.numeric(df.microorganisms.single$rpkm), na.rm = TRUE)  
+df.amr.markers.single$relabund.rpkm <- as.numeric(df.amr.markers.single$rpkm) / sum(as.numeric(df.amr.markers.single$rpkm), na.rm = TRUE)
+
+```
+
+# Create dataframes
+```{r}
+
+process_json <- function(json_files, target = c("amrMarkers", "microorganisms")) {
+  target <- match.arg(target)  # ensures valid input
+  df_all <- data.frame()
+
+  for (file in json_files) {
+    json_data <- fromJSON(file, simplifyDataFrame = FALSE)
+    sample_name <- sub("\\..*", "", basename(file))
+
+    # Extract the right target list from the JSON
+    records <- switch(
+      target,
+      amrMarkers = json_data$targetReport$amrMarkers,
+      microorganisms = json_data$targetReport$microorganisms
+    )
+
+    # Skip if empty or NULL
+    if (is.null(records) || length(records) == 0) {
+      # Include a placeholder row if the record is empty
+      df <- data.frame(sample = sample_name)
+    } else {
+      df <- bind_rows(lapply(records, flatten_to_named_row))
+      df$sample <- sample_name
+    }
+
+    df_all <- bind_rows(df_all, df)
+  }
+
+  if ("sample" %in% names(df_all)) {
+    # Move 'sample' to the first column if it exists
+    df_all <- df_all[, c("sample", setdiff(names(df_all), "sample"))]
+  }
+  
+  return(df_all)
+}
+
+df_amr.markers.urinary <- process_json(json_files_urinary, target = "amrMarkers")
+df_micro.urinary <- process_json(json_files_urinary, target = "microorganisms")
+
+df_amr.markers.respiratory <- process_json(json_files_respiratory, target = "amrMarkers")
+df_micro.respiratory <- process_json(json_files_respiratory, target = "microorganisms")
+
+```
+
+# Partition samples function
+```{r}
+partition_samples <- function(df) {
+  
+  controls <- c("BLANK-1", "BLANK-2", "VIRCELL-ADV41", "VIRCELL-H1", "ZEPTO-ADV1", "ZEPTO-H1")
+  nonsamples <- c("AACTTATCCT-ACGCCAGTAC", "CCAATGATAC-CGGCACACTC", "CCATGGTATA-CTCCGCGAGA",
+                        "CGATCTGTGA-AGTCTTCCTA", "GTAACAATCT-GTATACAGAG", "GTAGGCGAGC-TGCGCTCCTA",
+                        "GTGGACAAGT-AAGGCCACGG", "TCTCAATACC-CGCGAACGTC", "TCTTGTCGGC-ACACAGGTGG",
+                        "TGCAAGATAA-CCGTCCTCAA", "TTAGACCATG-CTTCCTAGGA",
+                        "Undetermined-lane2", "Undetermined-lane3"
+                        )
+  
+  df_controls <- df[df$sample %in% controls, ]
+  df_nonsamples <- df[df$sample %in% nonsamples, ]
+  df_sample.spike  <- df %>% filter(grepl("^0718-WOD-INF", sample))
+  
+  # excludes controls and six-replicate 3-spike sample
+  df_samples <- df %>%
+    filter(
+      !(sample %in% controls) &       # Exclude controls
+      !(sample %in% nonsamples) &
+      !grepl("^0718-WOD-INF", sample) # Exclude anything starting with "0718-WOD-INF"
+    )
+  
+  # Grabs samples names that end with INF or SOL. Does not include 0718-WOD-INF- replicates
+  df_influent <- df %>% filter(grepl("-INF$", sample))
+  df_solids <- df %>% filter(grepl("-SOL$", sample))
+  
+  return(list(
+      controls = df_controls,
+      nonsamples = df_nonsamples,
+      sample.spike = df_sample.spike,
+      samples = df_samples,
+      influent = df_influent,
+      solids = df_solids
+  ))
+}
+
+partitioned_amr.markers.urinary <- partition_samples(df_amr.markers.urinary)
+partitioned_micro.urinary <- partition_samples(df_micro.urinary)
+
+partitioned_amr.markers.respiratory <- partition_samples(df_amr.markers.respiratory)
+partitioned_micro.respiratory <- partition_samples(df_micro.respiratory)
+
+
+```
+
+# Separate partitions
+```{r}
+df_amr.markers.urinary_controls <- partitioned_amr.markers.urinary$controls
+df_amr.markers.urinary_nonsamples <- partitioned_amr.markers.urinary$nonsamples
+df_amr.markers.urinary_sample.spike <- partitioned_amr.markers.urinary$sample.spike
+df_amr.markers.urinary_samples <- partitioned_amr.markers.urinary$samples
+df_amr.markers.urinary_influent <- partitioned_amr.markers.urinary$influent
+df_amr.markers.urinary_solids <- partitioned_amr.markers.urinary$solids
+
+df_micro.urinary_controls <- partitioned_micro.urinary$controls
+df_micro.urinary_nonsamples <- partitioned_micro.urinary$nonsamples
+df_micro.urinary_sample.spike <- partitioned_micro.urinary$sample.spike
+df_micro.urinary_samples <- partitioned_micro.urinary$samples
+df_micro.urinary_influent <- partitioned_micro.urinary$influent
+df_micro.urinary_solids <- partitioned_micro.urinary$solids
+
+df_amr.markers.respiratory_controls <- partitioned_amr.markers.urinary$controls
+df_amr.markers.respiratory_nonsamples <- partitioned_amr.markers.urinary$nonsamples
+df_amr.markers.respiratory_sample.spike <- partitioned_amr.markers.urinary$sample.spike
+df_amr.markers.respiratory_samples <- partitioned_amr.markers.urinary$samples
+df_amr.markers.respiratory_influent <- partitioned_amr.markers.urinary$influent
+df_amr.markers.respiratory_solids <- partitioned_amr.markers.urinary$solids
+
+df_micro.respiratory_controls <- partitioned_micro.respiratory$controls
+df_micro.respiratory_nonsamples <- partitioned_micro.respiratory$nonsamples
+df_micro.respiratory_sample.spike <- partitioned_micro.respiratory$sample.spike
+df_micro.respiratory_samples <- partitioned_micro.respiratory$samples
+df_micro.respiratory_influent <- partitioned_micro.respiratory$influent
+df_micro.respiratory_solids <- partitioned_micro.respiratory$solids
+
+```
+
+# process data frame - new
+```{r}
+process_data_frame <- function(df, remove_spike_OC43 = FALSE) {
+
+  all.combinations <- expand_grid(
+    sample = unique(df$sample),
+    name = unique(df$name)
+  )
+  
+  all.combinations.filled <- all.combinations %>%
+    left_join(df, by = c("sample", "name"))
+  
+  # Get rid of placeholder NA row from earlier for samples that didn't have hits
+  all.combinations.filled <- all.combinations.filled %>% filter(!is.na(name))
+  
+  df_zeros <- all.combinations.filled %>%
+    mutate(
+      alignedReadCount = replace_na(alignedReadCount, 0),
+      rpkm = replace_na(rpkm, 0)
+    )
+  
+  df_zeros$type <- case_when(
+        grepl("(^|-)INF$", df_zeros$sample) ~ "Influent",
+        grepl("(^|-)SOL$", df_zeros$sample) ~ "Solids",
+        TRUE ~ "Other"
+      )
+  
+  # Take out type from the sample name (0505-MOD-SOL -> 0505-MOD)
+  df_zeros$sample <- gsub("-(SOL|INF)", "", df_zeros$sample)
+  
+  df_complete <- df_zeros %>%
+    filter(type %in% c("Solids", "Influent", "Other")) %>%
+    mutate(type = factor(type, levels = c("Solids", "Influent", "Other")))
+  
+   if (remove_spike_OC43) {
+    df_complete <- df_complete %>%
+      filter(!name %in% c("Human coronavirus OC43 (HCoV_OC43)"))
+  }
+  
+  df_complete <- df_complete %>%
+  group_by(sample) %>%
+  mutate(
+    relabund.rpkm = if (sum(rpkm) == 0) 0 else rpkm / sum(rpkm),
+    percent.rpkm = round(relabund.rpkm * 100, 2)
+  ) %>%
+  ungroup()
+  
+  df_complete$name <- factor(df_complete$name, levels = df_complete %>%
+                           group_by(name) %>%
+                           summarise(total.relabund.rpkm = sum(relabund.rpkm)) %>%
+                           arrange(total.relabund.rpkm) %>%
+                           pull(name))
+  
+  # adds location from sample name, capturing everything after the first '-' and up to the next '-' or end of string
+  var_name <- deparse(substitute(df))
+  df_complete$location <- if (grepl("(_samples|_sample\\.spike|_solids|_influent)$", var_name)) {
+    sub("^[^\\-]+-([^\\-]+).*", "\\1", df_complete$sample)
+  } else {
+    NA
+  }
+  
+  return(df_complete)
+}
+
+```
+
+# process data frame for each partition
+```{r}
+df_amr.markers.urinary_controls_processed <- process_data_frame(df_amr.markers.urinary_controls)
+df_amr.markers.urinary_nonsamples_processed <- process_data_frame(df_amr.markers.urinary_nonsamples)
+df_amr.markers.urinary_sample.spike_processed <- process_data_frame(df_amr.markers.urinary_sample.spike)
+df_amr.markers.urinary_samples_processed <- process_data_frame(df_amr.markers.urinary_samples, remove_spike_OC43 = TRUE)
+df_amr.markers.urinary_influent_processed <- process_data_frame(df_amr.markers.urinary_influent, remove_spike_OC43 = TRUE)
+df_amr.markers.urinary_solids_processed <- process_data_frame(df_amr.markers.urinary_solids, remove_spike_OC43 = TRUE)
+
+df_micro.urinary_controls_processed <- process_data_frame(df_micro.urinary_controls)
+df_micro.urinary_nonsamples_processed <- process_data_frame(df_micro.urinary_nonsamples)
+df_micro.urinary_sample.spike_processed <- process_data_frame(df_micro.urinary_sample.spike)
+df_micro.urinary_samples_processed <- process_data_frame(df_micro.urinary_samples, remove_spike_OC43 = TRUE)
+df_micro.urinary_influent_processed <- process_data_frame(df_micro.urinary_influent, remove_spike_OC43 = TRUE)
+df_micro.urinary_solids_processed <- process_data_frame(df_micro.urinary_solids, remove_spike_OC43 = TRUE)
+
+df_amr.markers.respiratory_controls_processed <- process_data_frame(df_amr.markers.respiratory_controls)
+df_amr.markers.respiratory_nonsamples_processed <- process_data_frame(df_amr.markers.respiratory_nonsamples)
+df_amr.markers.respiratory_sample.spike_processed <- process_data_frame(df_amr.markers.respiratory_sample.spike)
+df_amr.markers.respiratory_samples_processed <- process_data_frame(df_amr.markers.respiratory_samples, remove_spike_OC43 = TRUE)
+df_amr.markers.respiratory_influent_processed <- process_data_frame(df_amr.markers.respiratory_influent, remove_spike_OC43 = TRUE)
+df_amr.markers.respiratory_solids_processed <- process_data_frame(df_amr.markers.respiratory_solids, remove_spike_OC43 = TRUE)
+
+df_micro.respiratory_controls_processed <- process_data_frame(df_micro.respiratory_controls)
+df_micro.respiratory_nonsamples_processed <- process_data_frame(df_micro.respiratory_nonsamples)
+df_micro.respiratory_sample.spike_processed <- process_data_frame(df_micro.respiratory_sample.spike)
+df_micro.respiratory_samples_processed <- process_data_frame(df_micro.respiratory_samples, remove_spike_OC43 = TRUE)
+df_micro.respiratory_influent_processed <- process_data_frame(df_micro.respiratory_influent, remove_spike_OC43 = TRUE)
+df_micro.respiratory_solids_processed <- process_data_frame(df_micro.respiratory_solids, remove_spike_OC43 = TRUE)
+```
+
+# Function to consolidate samples by type or location
+```{r}
+consolidate <- function(df, consolidation.level = c("type", "location")) {
+  consolidation.level <- match.arg(consolidation.level)
+  prefix <- sub("_processed$", "", sub("^df_", "", deparse(substitute(df))))
+
+  # Group by the chosen level and name
+  df_avg.relabund <- df %>%
+    group_by(.data[[consolidation.level]], name) %>%
+    summarize(relabund.rpkm.mean = mean(relabund.rpkm, na.rm = TRUE), .groups = "drop") %>%
+    group_by(.data[[consolidation.level]]) %>%
+    mutate(relabund.rpkm.mean.normalized = relabund.rpkm.mean / sum(relabund.rpkm.mean, na.rm = TRUE)) %>%
+    ungroup()
+
+  df_avg.rpkm <- df %>%
+    group_by(.data[[consolidation.level]], name) %>%
+    summarize(rpkm.mean = mean(rpkm, na.rm = TRUE), .groups = "drop")
+
+  # Join the two summaries
+  df_combined <- left_join(
+    df_avg.relabund,
+    df_avg.rpkm,
+    by = c(consolidation.level, "name")
+  )
+
+  return(df_combined)
+}
+
+# Summarize by location
+df_amr.markers.urinary_influent_by_location <- consolidate(df_amr.markers.urinary_influent_processed, "location")
+df_amr.markers.urinary_solids_by_location <- consolidate(df_amr.markers.urinary_solids_processed, "location")
+
+df_micro.urinary_influent_by_location <- consolidate(df_micro.urinary_influent_processed, "location")
+df_micro.urinary_solids_by_location <- consolidate(df_micro.urinary_solids_processed, "location")
+
+df_amr.markers.respiratory_influent_by_location <- consolidate(df_amr.markers.respiratory_influent_processed, "location")
+df_amr.markers.respiratory_solids_by_location <- consolidate(df_amr.markers.respiratory_solids_processed, "location")
+
+df_micro.respiratory_influent_by_location <- consolidate(df_micro.respiratory_influent_processed, "location")
+df_micro.respiratory_solids_by_location <- consolidate(df_micro.respiratory_solids_processed, "location")
+
+# Summarize by type
+df_amr.markers.urinary_samples_by_type <- consolidate(df_amr.markers.urinary_samples_processed, "type")
+df_micro.urinary_samples_by_type <- consolidate(df_micro.urinary_samples_processed, "type")
+df_amr.markers.respiratory_samples_by_type <- consolidate(df_amr.markers.respiratory_samples_processed, "type")
+df_micro.respiratory_samples_by_type <- consolidate(df_micro.respiratory_samples_processed, "type")
+
+```
+
+
+# analysis
+```{r}
+
+df_urinary_unique <- df_urinary %>%
+  distinct(Name, .keep_all = TRUE) %>%  # keep only first row of each Name
+  select(Name, Drug, Microorganism)     # select columns of interest
+
+write.csv(df_urinary_unique, "urinary_unique.csv", row.names = FALSE)
+
+df_respiratory_unique <- df_respiratory %>%
+  distinct(Name, .keep_all = TRUE) %>%  # keep only first row of each Name
+  select(Name, Drug, Microorganism)     # select columns of interest
+
+write.csv(df_respiratory_unique, "respiratory_unique.csv", row.names = FALSE)
+
+```
+
+
+# Non-consolidated abundance - controls, weird samples
+```{r}
+plot_abundance <- function(df, width, height, ncol)  {
+  # Extract the prefix from the input df name
+  prefix <- sub("_processed$", "", sub("^df_", "", deparse(substitute(df))))
+  
+  # Determine analysis and feature types from the prefix
+  upip_rpip <- case_when(
+    grepl("urinary", prefix)    ~ "Urinary",
+    grepl("respiratory", prefix) ~ "Respiratory",
+    TRUE                         ~ "<unknown>")
+  micro_amr <- case_when(
+    grepl("micro", prefix)        ~ "Microorganisms",
+    grepl("amr\\.markers", prefix) ~ "AMR Markers",
+    TRUE                           ~ "<unknown>")
+  sample_type <- case_when(
+    grepl("controls", prefix)       ~ "Controls",
+    grepl("nonsamples", prefix)     ~ "Non-Samples",
+    grepl("sample\\.spike", prefix) ~ "Tri-Spike Replicates",
+    TRUE                            ~ "")
+  fill_label    <- paste(upip_rpip, micro_amr)
+  
+  title_base <- paste(upip_rpip, micro_amr, "in", sample_type)
+  ref_df <- paste0("(", prefix, ")")
+  
+  # Individual titles
+  relabund_title <- paste("Relative Abundance of", title_base, "\n", ref_df)
+  abundance_title <- paste("Raw Abundance of", title_base, "\n", ref_df)
+  relabund_label <- "Relative Abundance"
+  abundance_label <- "Raw Abundance"
+  plot_title <- paste("Relative and Raw Abundance of", title_base, "\n", ref_df)
+
+  # Base plot styling
+  base_theme <- theme_minimal() +
+    theme(
+      axis.line.x = element_line(color = "black"),
+      axis.line.y = element_line(color = "black"),
+      panel.grid = element_blank(),
+      axis.ticks.x = element_line(),
+      axis.ticks.y = element_line(),
+      axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+      plot.margin = margin(10, 10, 10, 10)
+    )
+  
+# Plot 1: Relative Abundance (relabund.rpkm)
+  p_relabund <- ggplot(df, aes(x = sample, y = relabund.rpkm, fill = name)) +
+    geom_bar(stat = "identity", color = "Dark Blue") +
+    scale_y_continuous(limits = c(0, 1.01), expand = c(0, 0)) +
+    scale_x_discrete(expand = c(0.09, 0.09)) +
+    labs(
+      title = relabund_title,
+      x = sample_type,
+      y = "Relative Abundance of RPKM",
+      fill = fill_label
+    ) +
+    guides(fill = guide_legend(ncol = ncol)) +
+    base_theme
+
+  # Plot 2: Raw RPKM abundance
+  p_rpkm <- ggplot(df, aes(x = sample, y = rpkm, fill = name)) +
+    geom_bar(stat = "identity", color = "Dark Blue") +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+    scale_x_discrete(expand = c(0.09, 0.09)) +
+    labs(
+      title = abundance_title,
+      x = sample_type,
+      y = "RPKM",
+      fill = fill_label
+    ) +
+    guides(fill = guide_legend(ncol = ncol)) +
+    base_theme
+  
+  # Combining relabund and abundance plots
+  # Remove legend from left plot
+  p_relabund_no_legend <- p_relabund + theme(legend.position = "none") + labs(title = relabund_label)
+  p_rpkm_with_legend <- p_rpkm + labs(title = abundance_label)
+
+  p_combined <- (p_relabund_no_legend | p_rpkm_with_legend) +
+  plot_layout(guides = "collect") +
+    plot_annotation(
+    title = plot_title,
+    theme = theme(plot.title = element_text(size = 16, face = "bold", hjust = 0.5, margin = margin(b = 10)))
+  ) &
+  theme(legend.position = "right")
+  
+  # Save plots in separate folders
+  ggsave(file = file.path("nonconsolidated_graphs/1.relabund", paste0("plot_relabund_", prefix, ".pdf")), 
+         plot = p_relabund, width = width, height = height)
+  
+  ggsave(file = file.path("nonconsolidated_graphs/2.rpkm", paste0("plot_rpkm_", prefix, ".pdf")), 
+         plot = p_rpkm, width = width, height = height)
+  
+  ggsave(file = file.path("nonconsolidated_graphs/3.combined", paste0("plot_combined_", prefix, ".pdf")), 
+         plot = p_combined, width = width * 1.5, height = height)
+
+  # Return both plots as a named list
+  return(list(
+    relabund_plot = p_relabund,
+    rpkm_plot = p_rpkm,
+    combined_plot = p_combined
+  ))
+}
+
+# Create directories if they don't already exist
+dir.create("nonconsolidated_graphs/1.relabund", showWarnings = FALSE, recursive = TRUE)
+dir.create("nonconsolidated_graphs/2.rpkm", showWarnings = FALSE, recursive = TRUE)
+dir.create("nonconsolidated_graphs/3.combined", showWarnings = FALSE, recursive = TRUE)
+
+plots_amr.markers.respiratory_controls <- plot_abundance(df_amr.markers.respiratory_controls_processed, w=11, h=6.5, n=1)
+plots_amr.markers.respiratory_nonsamples <- plot_abundance(df_amr.markers.respiratory_nonsamples_processed, w=14, h=6.5, n=5)
+plots_amr.markers.respiratory_sample.spike <- plot_abundance(df_amr.markers.respiratory_sample.spike_processed, w=11, h=6.5, n=5)
+
+plots_amr.markers.urinary_controls <- plot_abundance(df_amr.markers.urinary_controls_processed, w=11, h=6.5, n=1)
+plots_amr.markers.urinary_nonsamples <- plot_abundance(df_amr.markers.urinary_nonsamples_processed, w=14, h=6.5, n=5)
+plots_amr.markers.urinary_sample.spike <- plot_abundance(df_amr.markers.urinary_sample.spike_processed, w=11, h=6.5, n=5)
+
+plots_micro.respiratory_controls <- plot_abundance(df_micro.respiratory_controls_processed, w=11, h=6.5, n=1)
+plots_micro.respiratory_nonsamples <- plot_abundance(df_micro.respiratory_nonsamples_processed, w=14, h=6.5, n=2)
+plots_micro.respiratory_sample.spike <- plot_abundance(df_micro.respiratory_sample.spike_processed, w=11, h=6.5, n=1)
+
+plots_micro.urinary_controls <- plot_abundance(df_micro.urinary_controls_processed, w=11, h=6.5, n=1)
+plots_micro.urinary_nonsamples <- plot_abundance(df_micro.urinary_nonsamples_processed, w=14, h=6.5, n=2)
+plots_micro.urinary_sample.spike <- plot_abundance(df_micro.urinary_sample.spike_processed, w=11, h=6.5, n=1)
+
+
+# # View them
+# plots_micro.respiratory_controls$relabund_plot
+# plots_micro.respiratory_controls$rpkm_plot
+# plots_micro.respiratory_controls$combined_plot
+
+```
+
+
+# Function to plot average consolidated abundance
+```{r}
+plot_consolidated_abundance <- function(df, consolidation.level = c("type", "location"), width, height, ncol)  {
+  consolidation.level <- match.arg(consolidation.level)
+  # Extract the prefix from the input df name
+  prefix <- sub("_processed$", "", sub("^df_", "", deparse(substitute(df))))
+  
+  # Determine analysis and feature types from the prefix
+  upip_rpip <- case_when(
+    grepl("urinary", prefix)    ~ "Urinary",
+    grepl("respiratory", prefix) ~ "Respiratory",
+    TRUE                         ~ "<unknown>")
+  micro_amr <- case_when(
+    grepl("micro", prefix)        ~ "Microorganisms",
+    grepl("amr\\.markers", prefix) ~ "AMR Markers",
+    TRUE                           ~ "<unknown>")
+  sample_type <- case_when(
+    grepl("solids", prefix)   ~ "in Solids",
+    grepl("influent", prefix) ~ "in Influent",
+    TRUE                      ~ "")
+  fill_label    <- paste(upip_rpip, micro_amr)
+  
+  title_base <- paste(upip_rpip, micro_amr, sample_type, "Consolidated to", tools::toTitleCase(consolidation.level))
+  ref_df <- paste0("(", prefix, ")")
+  
+  # Individual titles
+  relabund_title <- paste("Relative Abundance of", title_base, "\n", ref_df)
+  abundance_title <- paste("Raw Abundance of", title_base, "\n", ref_df)
+  relabund_label <- "Relative Abundance"
+  abundance_label <- "Raw Abundance"
+  plot_title <- paste("Relative and Raw Abundance of", title_base, "\n", ref_df)
+
+  # Base plot styling
+  base_theme <- theme_minimal() +
+    theme(
+      axis.line.x = element_line(color = "black"),
+      axis.line.y = element_line(color = "black"),
+      panel.grid = element_blank(),
+      axis.ticks.x = element_line(),
+      axis.ticks.y = element_line(),
+      axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+      plot.margin = margin(10, 10, 10, 10)
+    )
+  
+# Plot 1: Relative Abundance (relabund.rpkm)
+  p_relabund <- ggplot(df, aes(x = .data[[consolidation.level]], y = relabund.rpkm.mean.normalized, fill = name)) +
+    geom_bar(stat = "identity", color = "Dark Blue") +
+    scale_y_continuous(limits = c(0, 1.01), expand = c(0, 0)) +
+    scale_x_discrete(expand = c(0.09, 0.09)) +
+    labs(
+      title = relabund_title,
+      x = tools::toTitleCase(consolidation.level),
+      y = "Relative Abundance of RPKM",
+      fill = fill_label
+    ) +
+    guides(fill = guide_legend(ncol = ncol)) +
+    base_theme
+
+  # Plot 2: Raw RPKM abundance
+  p_rpkm <- ggplot(df, aes(x = .data[[consolidation.level]], y = rpkm.mean, fill = name)) +
+    geom_bar(stat = "identity", color = "Dark Blue") +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+    scale_x_discrete(expand = c(0.09, 0.09)) +
+    labs(
+      title = abundance_title,
+      x = tools::toTitleCase(consolidation.level),
+      y = "Average RPKM",
+      fill = fill_label
+    ) +
+    guides(fill = guide_legend(ncol = ncol)) +
+    base_theme
+  
+  # Combining relabund and abundance plots
+  # Remove legend from left plot
+  p_relabund_no_legend <- p_relabund + theme(legend.position = "none") + labs(title = relabund_label)
+  p_rpkm_with_legend <- p_rpkm + labs(title = abundance_label)
+
+  p_combined <- (p_relabund_no_legend | p_rpkm_with_legend) +
+  plot_layout(guides = "collect") +
+    plot_annotation(
+    title = plot_title,
+    theme = theme(plot.title = element_text(size = 16, face = "bold", hjust = 0.5, margin = margin(b = 10)))
+  ) &
+  theme(legend.position = "right")
+  
+  # Save plots in separate folders
+  ggsave(file = file.path("consolidated_graphs/1.relabund", paste0("plot_relabund_", consolidation.level, "_", prefix, ".pdf")), 
+         plot = p_relabund, width = width, height = height)
+  
+  ggsave(file = file.path("consolidated_graphs/2.rpkm", paste0("plot_rpkm_", consolidation.level, "_", prefix, ".pdf")), 
+         plot = p_rpkm, width = width, height = height)
+  
+  ggsave(file = file.path("consolidated_graphs/3.combined", paste0("plot_combined_", consolidation.level, "_", prefix, ".pdf")), 
+         plot = p_combined, width = width * 1.5, height = height)
+
+  # Return both plots as a named list
+  return(list(
+    relabund_plot = p_relabund,
+    rpkm_plot = p_rpkm,
+    combined_plot = p_combined
+  ))
+}
+
+
+```
+
+# Make consolidated plots
+```{r}
+# Create directories if they don't already exist
+dir.create("consolidated_graphs/1.relabund", showWarnings = FALSE, recursive = TRUE)
+dir.create("consolidated_graphs/2.rpkm", showWarnings = FALSE, recursive = TRUE)
+dir.create("consolidated_graphs/3.combined", showWarnings = FALSE, recursive = TRUE)
+
+# by location (for bar plots w/ bar for each loc)
+plots_amr.markers.respiratory_influent_by_location <- plot_consolidated_abundance(df_amr.markers.respiratory_influent_by_location, 
+                                                                                  "location", w=15, h=10, n=6)
+plots_amr.markers.respiratory_solids_by_location <- plot_consolidated_abundance(df_amr.markers.respiratory_solids_by_location, 
+                                                                                "location", w=18, h=10, n=7)
+
+plots_amr.markers.urinary_influent_by_location <- plot_consolidated_abundance(df_amr.markers.urinary_influent_by_location, 
+                                                                              "location", w=15, h=10, n=6)
+plots_amr.markers.urinary_solids_by_location <- plot_consolidated_abundance(df_amr.markers.urinary_solids_by_location, 
+                                                                            "location", w=18, h=10, n=7)
+
+plots_micro.respiratory_influent_by_location <- plot_consolidated_abundance(df_micro.respiratory_influent_by_location, 
+                                                                            "location", w=10, h=10, n=1)
+plots_micro.respiratory_solids_by_location <- plot_consolidated_abundance(df_micro.respiratory_solids_by_location, 
+                                                                          "location", w=10, h=10, n=1)
+
+plots_micro.urinary_influent_by_location <- plot_consolidated_abundance(df_micro.urinary_influent_by_location, 
+                                                                        "location", w=10, h=10, n=1)
+plots_micro.urinary_solids_by_location <- plot_consolidated_abundance(df_micro.urinary_solids_by_location, 
+                                                                      "location", w=10, h=10, n=1)
+
+
+# by type (for 2-bar plots)
+plots_amr.markers.respiratory_samples_by_type <- plot_consolidated_abundance(df_amr.markers.respiratory_samples_by_type, 
+                                                                             "type", w=16, h=10, n=8)
+
+plots_amr.markers.urinary_samples_by_type <- plot_consolidated_abundance(df_amr.markers.urinary_samples_by_type, 
+                                                                         "type", w=16, h=10, n=8)
+
+plots_micro.respiratory_samples_by_type <- plot_consolidated_abundance(df_micro.respiratory_samples_by_type, 
+                                                                       "type", w=10, h=10, n=2)
+
+plots_micro.urinary_samples_by_type <- plot_consolidated_abundance(df_micro.urinary_samples_by_type, 
+                                                                   "type", w=9, h=10, n=2)
+
+
+# # View them
+# plots_amr.markers.respiratory_samples_by_type$relabund_plot
+# plots_amr.markers.respiratory_samples_by_type$rpkm_plot
+# plots_amr.markers.respiratory_samples_by_type$combined_plot
+
+```
+
+```{r}
+
+# 1) Respiratory plot (top)
+p_respiratory <- ggplot(df_respiratory, aes(x = sample, y = RelAbun, fill = Name)) +
+  geom_bar(stat = "identity", color = "Dark Blue", width = 0.9) +
+  theme_minimal() +
+  scale_y_continuous(limits = c(0, 1.01), expand = c(0, 0)) +
+  scale_x_discrete(expand = c(0, 0)) +
+  labs(
+    x = "",           # remove x-axis label "sample"
+    y = "Respiratory AMR Relative Abundance",
+    fill = "AMR Marker Identity"
+  ) +
+  theme(
+    panel.grid = element_blank(),
+    axis.ticks.x = element_blank(),       # remove x-axis ticks
+    axis.ticks.y = element_blank(),
+    axis.text.x = element_blank(),          # remove sample names
+    panel.spacing = unit(0.3, "cm"),
+    legend.position = "right",
+    plot.margin = margin(t = 0, r = 40, b = 0, l = 5)
+  ) +
+  facet_wrap(~ Type, scales = "free_x") +
+  guides(fill = guide_legend(ncol = 2,
+                title.position = "top",    # puts "AMR Marker Identity" above the keys
+                label.position = "right")) +
+  theme(
+    legend.text = element_text(size = 8),
+    legend.key.size = unit(0.5, "lines"),
+    legend.title = element_text(size = 9)
+  )
+
+# 2) Urinary plot (bottom)
+p_urinary <- ggplot(df_urinary, aes(x = sample, y = RelAbun, fill = Name)) +
+  geom_bar(stat = "identity", color = "Dark Blue", width = 0.9) +
+  theme_minimal() +
+  scale_y_continuous(limits = c(0, 1.01), expand = c(0, 0)) +
+  scale_x_discrete(expand = c(0, 0)) +
+  labs(
+    x = "sample",
+    y = "Urinary AMR Relative Abundance",
+    fill = ""         # remove legend title for this plot
+  ) +
+  theme(
+    panel.grid = element_blank(),
+    axis.ticks.x = element_line(),
+    axis.ticks.y = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.spacing = unit(0.3, "cm"),
+    legend.position = c(1.515, 0.5),
+    plot.margin = margin(t = 3, r = 40, b = 0, l = 5)
+  ) +
+  facet_wrap(~ Type, scales = "free_x") +
+  guides(fill = guide_legend(ncol = 3)) +
+  theme(
+    legend.text = element_text(size = 8),
+    legend.key.size = unit(0.5, "lines"),
+    legend.title = element_text(size = 9),
+    strip.text = element_blank()
+  )
+
+p_respiratory <- p_respiratory +
+  labs(x = NULL) +  # remove any default x label
+  theme(
+    axis.title.x = element_blank(),  # remove x title margin
+    axis.text.x  = element_blank(),  # remove text
+  )
+
+# 3) Combine plots vertically, keeping each legend separate
+combined_plot <- p_respiratory / p_urinary + plot_layout(guides = "keep")
+
+pdf("combined_AMR.pdf", width = 9, height = 7)
+print(combined_plot)
+dev.off()
+```
+
