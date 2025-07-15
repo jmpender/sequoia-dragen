@@ -1,5 +1,5 @@
 ---
-title: "Sequoia Dragen VSP"
+title: "Sequoia Dragen VSP Analysis"
 author: "Pender, J."
 date: "Last updated on `r format(Sys.time(), '%d %B, %Y')`"
 output:
@@ -14,24 +14,25 @@ editor_options:
 # Setting up working directory, packages
 ```{r}
 setwd("~/github/sequoia-dragen/outputs-sequoia/vsp")
-# knitr::opts_knit$set(root.dir = "~/github/sequoia-dragen/outputs-sequoia/vsp")
 rm(list = ls())
 
-library("readr")
-library("jsonlite")
-library("dplyr")
-library("tidyr")
-library("ggplot2")
-library("purrr")
-library("patchwork")
-library("tidyverse")
-library("stringr")
-library("glue")
-library("writexl")
-library("readxl")
-library("openxlsx")
-library("ggpubr")
-
+library(readr)
+library(jsonlite)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(purrr)
+library(patchwork)
+library(tidyverse)
+library(stringr)
+library(glue)
+library(writexl)
+library(readxl)
+library(openxlsx)
+library(ggpubr)
+library(forcats)
+library(grid)
+# library(ComplexUpset)
 
 ```
 
@@ -41,7 +42,7 @@ library("ggpubr")
 kraken_files <- list.files("../../inputs-sequoia/kraken/", pattern = "*.krk.txt", full.names = TRUE)
 df_kraken <- data.frame()
 
-panel <- read_excel("../../inputs-sequoia/genus_family.xlsx", header = TRUE, sep = ",")
+panel <- read_excel("../../inputs-sequoia/genus_family.xlsx")
 
 ```
 
@@ -66,7 +67,7 @@ kraken_df <- read_tsv(
 ```{r}
 kraken_files <- list.files("../../inputs-sequoia/kraken/", pattern = "\\.krk\\.txt$", full.names = TRUE)
 
-# 3. Read and combine all files
+# Read and combine all files
 kraken_df <- map_dfr(
   kraken_files,
   function(file) {
@@ -79,16 +80,18 @@ kraken_df <- map_dfr(
         "rank_code",
         "taxon_ID",
         "taxon_name"
-      )
+      ),
+      show_col_types = FALSE
     ) %>%
     mutate(sample = sub("^(.*)_.*_.*$", "\\1", sub("\\..*", "", basename(file)))
-)
+  )
   }
 )
 
-# 4. (Optional) Move 'sample' to be the first column
+# Move 'sample' to be the first column
 kraken_df <- kraken_df %>% select(sample, everything())
 
+# Format sample name to be consistent with dragen format
 kraken_df$sample <- gsub("_", "-", kraken_df$sample)
 
 # Filter kraken_df for taxon_ID == 12239 and keep only necessary columns
@@ -231,15 +234,22 @@ tri.spike <- c("Human coronavirus OC43 (HCoV_OC43)",
 
 ```
 
-# Expand data frame
+# Expand data frame to include info on everything on the panel for each sample
 ```{r}
-# All virus hits in dataset get represented per sample
+# creates grid of all unique samples and all viruses on the panel for each sample
 df_vsp_expanded <- expand_grid(
   sample = unique(df_vsp$sample),
-  name = unique(df_vsp$name)
+  name = unique(panel$Reporting_Name)
 )
 
+# # old version - All virus hits in dataset get represented per sample, not all in panel
+# df_vsp_expanded <- expand_grid(
+#   sample = unique(df_vsp$sample),
+#   name = unique(df_vsp$name)
+# )
+
 # Add columns
+# If a virus was present in a sample, the columns will have values, if absent, NA
 df_vsp_expanded2 <- df_vsp_expanded %>%
   left_join(df_vsp, by = c("sample", "name"))
 
@@ -313,12 +323,40 @@ df_vsp_expanded5$city <- ifelse(
   df_vsp_expanded5$WWTP
 )
 
-loc.levels <- c("City of Davis", "UC Davis", "Davis", "Esparto", "Los Banos", "Turlock", "Winters", "Woodland", "Merced", "Modesto")
+df_vsp_expanded5 <- df_vsp_expanded5 %>%
+  mutate(WWTP_fraction = paste(WWTP, fraction, sep = " - "))
+
+levels.fraction <- c("Influent", "Solids")
+levels.WWTP <- c("City of Davis", "UC Davis", "Esparto", "Los Banos", "Turlock", "Winters", "Woodland", "Merced", "Modesto")
+levels.city <- c("Davis", "Esparto", "Los Banos", "Turlock", "Winters", "Woodland", "Merced", "Modesto")         
+levels.WWTP_fraction <- c("UC Davis - Influent", "City of Davis - Solids",
+                          "Esparto - Influent", "Esparto - Solids", 
+                          "Los Banos - Influent", "Los Banos - Solids",
+                          "Turlock - Influent", "Turlock - Solids", 
+                          "Winters - Influent", "Winters - Solids", 
+                          "Woodland - Influent", "Woodland - Solids", 
+                          "Merced - Solids", "Modesto - Solids")
+
+custom.colors <- c(
+  "Influent" = "#88CCEE",
+  "Solids" = "#332288",
+  "UC Davis" = "#8DD3C7", "City of Davis" = "#8DD3C7", "Davis" = "#8DD3C7", 
+  "UC Davis - Influent" = "#8DD3C7", "City of Davis - Solids" = "#5CB8A7", 
+  "Davis - Influent" = "#8DD3C7", "Davis - Solids" = "#5CB8A7",
+  "Esparto" = "#FFFFB3", "Esparto - Influent" = "#FFFFB3", "Esparto - Solids" = "#F7F77D",
+  "Los Banos" = "#BEBADA", "Los Banos - Influent" = "#BEBADA", "Los Banos - Solids" = "#9D97C4",
+  "Turlock" = "#FB8072", "Turlock - Influent" = "#FB8072", "Turlock - Solids" = "#E95540",
+  "Winters" = "#80B1D3", "Winters - Influent" = "#80B1D3", "Winters - Solids" = "#4C91C1",
+  "Woodland" = "#FDB462", "Woodland - Influent" = "#FDB462", "Woodland - Solids" = "#E38B30",
+  "Merced" = "#B3DE69", "Merced - Solids" = "#B3DE69",
+  "Modesto" = "#FCCDE5", "Modesto - Solids" = "#FCCDE5"
+)
   
 df_vsp_expanded5 <- df_vsp_expanded5 %>%
   mutate(
-    WWTP = factor(WWTP, levels = loc.levels),
-    city = factor(city, levels = loc.levels)
+    WWTP = factor(WWTP, levels = levels.WWTP),
+    city = factor(city, levels = levels.city),
+    WWTP_fraction = factor(WWTP_fraction, levels = levels.WWTP_fraction)
   )
 
 ```
@@ -498,7 +536,7 @@ export_genus_abundance_to_json <- function(df, output_folder, file) {
 
 # Add relative abundances and drop viruses that don't show up
 ```{r}
-process2 <- function(df) {
+process2 <- function(df, drop.absent.viruses = TRUE) {
   df <- df %>%
     group_by(sample) %>%
     mutate(
@@ -507,22 +545,24 @@ process2 <- function(df) {
     ) %>%
     ungroup()
   
+  # Arrange viruses in descending order. Take out desc if want ascending
   df$name <- factor(df$name, levels = df %>%
                            group_by(name) %>%
                            summarize(total.relabund.rpkm = sum(relabund.rpkm)) %>%
-                           arrange(total.relabund.rpkm) %>%
+                           arrange(desc(total.relabund.rpkm)) %>%
                            pull(name))
   
-  # Gets rid of virus names expanded to every sample that do not show up across the df
-  df <- df %>%
-  anti_join(
-    df %>%
-      group_by(name) %>%
-      summarize(total_reads = sum(alignedReadCount, na.rm = TRUE)) %>%
-      filter(total_reads == 0),
-    by = "name"
-  )
-  
+  if(drop.absent.viruses){
+    # Gets rid of virus names expanded to every sample that do not show up across the df
+    df <- df %>%
+    anti_join(
+      df %>%
+        group_by(name) %>%
+        summarize(total_reads = sum(alignedReadCount, na.rm = TRUE)) %>%
+        filter(total_reads == 0),
+      by = "name"
+    )
+  }
   return(df)
 }
 
@@ -543,6 +583,18 @@ df_tri_spike_samples_spike.removed_2 <- process2(df_tri_spike_samples_spike.remo
 df_samples_spike.removed_2 <- process2(df_samples_spike.removed)
 df_influent_spike.removed_2 <- process2(df_influent_spike.removed)
 df_solids_spike.removed_2 <- process2(df_solids_spike.removed)
+
+
+# with all viruses retained including ones that have no hits in df
+# samples without spikes removed, all viruses retained
+df_single_spike_samples_has_OC43_2_undropped <- process2(df_single_spike_samples_has_OC43, drop.absent.viruses = F)
+df_influent_has_OC43_2_undropped <- process2(df_influent_has_OC43, drop.absent.viruses = F)
+df_solids_has_OC43_2_undropped <- process2(df_solids_has_OC43, drop.absent.viruses = F)
+
+# samples with spikes removed
+df_samples_spike.removed_2_undropped <- process2(df_samples_spike.removed, drop.absent.viruses = F)
+df_influent_spike.removed_2_undropped <- process2(df_influent_spike.removed, drop.absent.viruses = F)
+df_solids_spike.removed_2_undropped <- process2(df_solids_spike.removed, drop.absent.viruses = F)
 
 ```
 
@@ -792,8 +844,8 @@ export_unique_hits_by_location(df_solids_spike.removed_processed,
 
 # analysis
 ```{r}
-namelist_influent <- unique(df_vsp_influent$name)
-namelist_solids <- unique(df_vsp_solids$name)
+namelist_influent <- unique(df_influent_spike.removed$name)
+namelist_solids <- unique(df_solids_spike.removed$name)
 
 unique_to_influent_not_in_solids <- setdiff(namelist_influent, namelist_solids)
 unique_to_solids_not_in_influent <- setdiff(namelist_solids, namelist_influent)
@@ -801,11 +853,11 @@ unique_to_solids_not_in_influent <- setdiff(namelist_solids, namelist_influent)
 print(unique_to_influent_not_in_solids)
 print(unique_to_solids_not_in_influent)
 
-total_rpkm_influent <- sum(df_vsp_influent$rpkm, na.rm = TRUE)
-total_rpkm_solids <- sum(df_vsp_solids$rpkm, na.rm = TRUE)
+total_rpkm_influent <- sum(df_influent_spike.removed_2$rpkm, na.rm = TRUE)
+total_rpkm_solids <- sum(df_solids_spike.removed_2$rpkm, na.rm = TRUE)
 
-total_reads_influent <- sum(df_vsp_influent$alignedReadCount, na.rm = TRUE)
-total_reads_solids <- sum(df_vsp_solids$alignedReadCount, na.rm = TRUE)
+total_reads_influent <- sum(df_influent_spike.removed_2$alignedReadCount, na.rm = TRUE)
+total_reads_solids <- sum(df_solids_spike.removed_2$alignedReadCount, na.rm = TRUE)
 
 # Find the maximum length
 max_len <- max(length(namelist_kraken_v1),
@@ -862,9 +914,9 @@ print(names_v2)
 write.csv(names_v2, "names_v2.csv", row.names = FALSE)
 ```
 
-# Function to consolidate samples by fraction or location
+# Consolidate samples by fraction or location
 ```{r}
-consolidate <- function(df, consolidation.level = c("fraction", "WWTP")) {
+consolidate <- function(df, consolidation.level = c("fraction", "WWTP", "WWTP_fraction")) {
   consolidation.level <- match.arg(consolidation.level)
   prefix <- sub("_processed$", "", sub("^df_", "", deparse(substitute(df))))
 
@@ -894,9 +946,15 @@ consolidate <- function(df, consolidation.level = c("fraction", "WWTP")) {
   left_join(df_avg.rpkm.norm.to.BCoV.recovery, by = c(consolidation.level, "name")) %>%
   left_join(df_avg.rpkm.norm.to.BCoV.rpkm, by = c(consolidation.level, "name"))
 
+  df_combined <- df_combined %>% mutate(present = if_else(rpkm.mean > 0, 1, 0))
+  df_combined$present <- factor(df_combined$present, levels = c(0, 1))
+  
+  # df_combined[[consolidation.level]] <- factor(df_combined[[consolidation.level]], levels = levels)
+  
   return(df_combined)
 }
 
+# only viruses present in df
 # Summarize by location
 df_influent_by.location_has.spike <- consolidate(df_influent_has_OC43_2, "WWTP") # spike intact
 df_solids_by.location_has.spike <- consolidate(df_solids_has_OC43_2, "WWTP") # spike intact
@@ -906,8 +964,168 @@ df_solids_by_location_spike.removed <- consolidate(df_solids_spike.removed_2, "W
 
 # Summarize by fraction
 df_vsp_samples_by.fraction_has.spike <- consolidate(df_single_spike_samples_has_OC43_2, "fraction") # spike intact
-
 df_samples_by.fraction_spike.removed <- consolidate(df_samples_spike.removed_2, "fraction") # spike removed
+
+# Summarize by fraction and locations
+df_vsp_samples_by.WWTP.fraction_has.spike <- consolidate(df_single_spike_samples_has_OC43_2, "WWTP_fraction") # spike intact
+df_samples_by.WWTP.fraction_spike.removed <- consolidate(df_samples_spike.removed_2, "WWTP_fraction") # spike removed
+
+
+# all viruses (undropped)
+# Summarize by location
+df_influent_by.location_has.spike_undropped <- consolidate(df_influent_has_OC43_2_undropped, "WWTP") # spike intact
+df_solids_by.location_has.spike_undropped <- consolidate(df_solids_has_OC43_2_undropped, "WWTP") # spike intact
+
+df_influent_by_location_spike.removed_undropped <- consolidate(df_influent_spike.removed_2_undropped, "WWTP") # spike removed
+df_solids_by_location_spike.removed_undropped <- consolidate(df_solids_spike.removed_2_undropped, "WWTP") # spike removed
+
+# Summarize by fraction
+df_vsp_samples_by.fraction_has.spike_undropped <- consolidate(df_single_spike_samples_has_OC43_2_undropped, "fraction") # spike intact
+df_samples_by.fraction_spike.removed_undropped <- consolidate(df_samples_spike.removed_2_undropped, "fraction") # spike removed
+
+
+```
+
+# Per-virus plots
+```{r}
+
+consolidated.plot.by.virus <- function(df, consolidation.level = c("fraction", "WWTP"), width, height)  {
+  consolidation.level <- match.arg(consolidation.level)
+  # Extract the prefix from the input df name
+  prefix <- sub("_processed$", "", sub("^df_", "", deparse(substitute(df))))
+  
+  sample_fraction <- case_when(
+    grepl("solids", prefix)   ~ "in Solids",
+    grepl("influent", prefix) ~ "in Influent",
+    TRUE                      ~ "")
+  
+  title_base <- paste("Viruses", sample_fraction, "Consolidated to", tools::toTitleCase(consolidation.level))
+  ref_df <- paste0("(", prefix, ")")
+  
+  # Individual titles
+  title <- paste("Relative Abundance of", title_base, "\n", ref_df)
+
+  p <- ggplot(df, aes(x = name, y = relabund.rpkm.mean, fill = .data[[consolidation.level]])) +
+    geom_bar(stat = "identity", color = "Black") +
+    scale_x_discrete(expand = c(0.05, 0.09)) +
+    labs(
+      title = title,
+      x = "Virus",
+      y = "Relative Abundance (RPKM)",
+      fill = tools::toTitleCase(consolidation.level)
+    ) +
+    theme_minimal() +
+    scale_fill_manual(values = custom.colors) +
+    theme(
+      axis.line.x = element_line(color = "black"),
+      axis.line.y = element_line(color = "black"),
+      panel.grid = element_blank(),
+      axis.ticks.x = element_line(),
+      axis.ticks.y = element_line(),
+      axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+      plot.margin = margin(10, 10, 10, 50)
+    )
+
+  # Save plots in separate folders
+  ggsave(file = file.path("by_virus_consolidated", paste0("plot_viruses_relabund_", consolidation.level, "_", prefix, ".pdf")), 
+         plot = p, width = width, height = height)
+
+  # Return plot
+  return(p)
+}
+
+if (!dir.exists("by_virus_consolidated")) {
+  dir.create("by_virus_consolidated")
+}
+
+consolidated.plot.by.virus(df_influent_by.location_has.spike, "WWTP", w=15, h=10)
+consolidated.plot.by.virus(df_solids_by.location_has.spike, "WWTP", w=15, h=10)
+
+consolidated.plot.by.virus(df_influent_by_location_spike.removed, "WWTP", w=15, h=10)
+consolidated.plot.by.virus(df_solids_by_location_spike.removed, "WWTP", w=15, h=10)
+
+# By fraction
+consolidated.plot.by.virus(df_vsp_samples_by.fraction_has.spike, "fraction", w=15, h=10)
+consolidated.plot.by.virus(df_samples_by.fraction_spike.removed, "fraction", w=15, h=10)
+
+```
+
+# UpSet Plots
+```{r}
+upset.plot <- function(df, consolidation.level = c("fraction", "WWTP", "WWTP_fraction"), width, height, top, bottom)  {
+  consolidation.level <- match.arg(consolidation.level)
+  # Extract the prefix from the input df name
+  prefix <- sub("_processed$", "", sub("^df_", "", deparse(substitute(df))))
+  
+  p_bar <- ggplot(df, aes(x = name, y = relabund.rpkm.mean, fill = .data[[consolidation.level]])) +
+  geom_bar(stat = "identity", color = "black") +
+  scale_fill_manual(values = custom.colors) +
+  labs(
+    x = NULL,
+    y = "Relative Abundance (RPKM)"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_blank(), 
+    axis.ticks.x = element_blank(),
+    panel.grid = element_blank(),
+    plot.margin = margin(0, 0, 0, 0)
+  )
+
+  # Make a copy of the df with reverse order factored levels for WWTP or fraction to correspond with bar plot above
+  
+  df_matrix <- df %>%
+  mutate(!!consolidation.level := forcats::fct_rev(.data[[consolidation.level]]))
+  
+  p_matrix <- ggplot(df_matrix, aes(x = name, y = .data[[consolidation.level]], fill = .data[[consolidation.level]], alpha = present)) +
+  geom_tile(color = "#696969") +
+  scale_alpha_manual(values = c("0" = 0, "1" = 1)) +
+  scale_fill_manual(values = custom.colors) +
+  labs(
+    x = "Virus",
+    y = NULL,
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, color = "black"),
+    axis.text.y = element_text(color = "black"),
+    legend.position = "none",
+    panel.grid.major = element_blank(),
+    plot.margin = margin(0, 0, 0, 0)
+  )
+  
+  # p <- p_bar / p_matrix + plot_layout(heights = c(3, 0.75))
+  # Stack without extra gap
+  p <- p_bar / p_matrix + plot_layout(heights = c(top, bottom))
+  
+  # Add outer margin only
+  p <- p & plot_annotation(theme = theme(plot.margin = margin(10, 10, 10, 80)))
+  
+  # Save plots in separate folders
+  ggsave(file = file.path("by_virus_upset", paste0("plot_viruses_relabund_", consolidation.level, "_", prefix, ".pdf")), 
+         plot = p, width = width, height = height)
+
+  # Return plot
+  return(p)
+}
+
+if (!dir.exists("by_virus_upset")) {
+  dir.create("by_virus_upset")
+}
+
+upset.plot(df_influent_by.location_has.spike, "WWTP", w=15, h=10, t=2, b=0.5)
+upset.plot(df_solids_by.location_has.spike, "WWTP", w=15, h=10, t=2, b=0.5)
+
+upset.plot(df_influent_by_location_spike.removed, "WWTP", w=15, h=10, t=2, b=0.5)
+upset.plot(df_solids_by_location_spike.removed, "WWTP", w=15, h=10, t=2, b=0.5)
+
+# By fraction
+upset.plot(df_vsp_samples_by.fraction_has.spike, "fraction", w=18, h=10, t=2, b=0.17)
+upset.plot(df_samples_by.fraction_spike.removed, "fraction", w=18, h=10, t=2, b=0.17)
+
+# By WWTP and fraction
+upset.plot(df_vsp_samples_by.WWTP.fraction_has.spike, "WWTP_fraction", w=22, h=10, t=2, b=0.6)
+upset.plot(df_samples_by.WWTP.fraction_spike.removed, "WWTP_fraction", w=22, h=10, t=2, b=0.6)
 
 ```
 

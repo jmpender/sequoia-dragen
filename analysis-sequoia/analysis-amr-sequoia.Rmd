@@ -14,6 +14,7 @@ editor_options:
 # Setting up working directory, packages
 ```{r}
 setwd("~/sequencing-analysis/sequoia/outputs-sequoia/microorganisms_and_amr")
+setwd("~/github/sequoia-dragen/outputs-sequoia/microorganisms_and_amr")
 rm(list = ls())
 
 library("jsonlite")
