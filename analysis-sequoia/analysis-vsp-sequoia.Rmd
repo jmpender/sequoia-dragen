@@ -44,6 +44,8 @@ df_kraken <- data.frame()
 
 panel <- read_excel("../../inputs-sequoia/genus_family.xlsx")
 
+dragen_report <- read_excel("../../inputs-sequoia/dragen_report.xlsx")
+
 ```
 
 # single kraken file option
@@ -114,6 +116,7 @@ sample_name = sub("\\..*", "", basename(file))
 df <- extract_microorganism_df(microorganisms, sample_name)
 
 df$genus.name <- panel$Genus_Name[match(df$name, panel$Reporting_Name)]
+df$strand.type <- panel$Type[match(df$name, panel$Reporting_Name)]
   
 df$fraction <- case_when(
       grepl("(^|-)INF$", df.amr.markers.single$sample) ~ "Influent",
@@ -262,8 +265,10 @@ df_vsp_expanded4 <- df_vsp_expanded3 %>%
     rpkm = replace_na(rpkm, 0)
   )
 
-# Match Genus_Name from panel using Reporting_Name
-df_vsp_expanded4$genus.name <- panel$Genus_Name[match(df_vsp_expanded4$name, panel$Reporting_Name)]
+df_vsp_expanded4 <- df_vsp_expanded4 %>%
+  left_join(panel %>% select(Reporting_Name, Genus_Name, strand.type, taxid),
+            by = c("name" = "Reporting_Name"))
+
 
 df_vsp_expanded4$fraction <- case_when(
       grepl("(^|-)INF$", df_vsp_expanded4$sample) ~ "Influent",
@@ -462,6 +467,27 @@ df_solids_has_OC43 <- df_single_spike_samples_has_OC43 %>% filter(fraction == "S
 
 ```
 
+# Export unique sample info to Excel
+```{r}
+# Subset for unique samples with relevant metadata
+df_single_spike_samples_export <- df_single_spike_samples_has_OC43 %>%
+  distinct(sample, .keep_all = TRUE) %>%
+  select(sample, fraction, WWTP, city, WWTP_fraction)
+
+df_influent_export <- df_influent_has_OC43 %>%
+  distinct(sample, .keep_all = TRUE) %>%
+  select(sample, fraction, WWTP, city, WWTP_fraction)
+
+df_solids_export <- df_solids_has_OC43 %>%
+  distinct(sample, .keep_all = TRUE) %>%
+  select(sample, fraction, WWTP, city, WWTP_fraction)
+
+# Export to xlsx
+write_xlsx(df_single_spike_samples_export, "single_spike_samples_filtered_list.xlsx")
+write_xlsx(df_influent_export, "influent_samples_filtered_list.xlsx")
+write_xlsx(df_solids_export, "solids_samples_filtered_list.xlsx")
+```
+
 # Remove spikes
 ```{r}
 remove_spikes <- function(df, spike_names) {
@@ -504,6 +530,8 @@ df_tri_spike_samples_spike.removed_genera <- summarize_by_genus(df_tri_spike_sam
 df_samples_spike.removed_genera <- summarize_by_genus(df_samples_spike.removed)
 df_influent_spike.removed_genera <- summarize_by_genus(df_influent_spike.removed)
 df_solids_spike.removed_genera <- summarize_by_genus(df_solids_spike.removed)
+
+
 
 ```
 
@@ -595,6 +623,21 @@ df_solids_has_OC43_2_undropped <- process2(df_solids_has_OC43, drop.absent.virus
 df_samples_spike.removed_2_undropped <- process2(df_samples_spike.removed, drop.absent.viruses = F)
 df_influent_spike.removed_2_undropped <- process2(df_influent_spike.removed, drop.absent.viruses = F)
 df_solids_spike.removed_2_undropped <- process2(df_solids_spike.removed, drop.absent.viruses = F)
+
+```
+
+# Number of samples and viable samples per location
+```{r}
+summarize_samples <- function(df){
+  df <- df %>%
+    group_by(fraction, WWTP) %>%
+    summarise(unique_samples = n_distinct(sample)) %>%
+    arrange(fraction, WWTP)
+  return(df)
+}
+
+df_all_sample_summary <- summarize_samples(df_vsp_expanded_complete)
+df_all_viable_sample_summary <- summarize_samples(df_single_spike_samples_has_OC43)
 
 ```
 
@@ -859,59 +902,6 @@ total_rpkm_solids <- sum(df_solids_spike.removed_2$rpkm, na.rm = TRUE)
 total_reads_influent <- sum(df_influent_spike.removed_2$alignedReadCount, na.rm = TRUE)
 total_reads_solids <- sum(df_solids_spike.removed_2$alignedReadCount, na.rm = TRUE)
 
-# Find the maximum length
-max_len <- max(length(namelist_kraken_v1),
-               length(namelist_dragen_v1),
-               length(namelist_kraken_v2),
-               length(namelist_dragen_v2),
-               length(unique_to_kraken_v1_not_in_dragen),
-               length(unique_to_dragen_v1_not_in_kraken),
-               length(unique_to_kraken_v2_not_in_dragen),
-               length(unique_to_dragen_v2_not_in_kraken))
-
-# Pad each vector to max_len
-pad_vector <- function(vec, max_len) {
-  c(vec, rep(NA, max_len - length(vec)))
-}
-
-df_unique <- data.frame(
-  namelist_kraken_v1 = pad_vector(namelist_kraken_v1, max_len),
-  namelist_dragen_v1 = pad_vector(namelist_dragen_v1, max_len),
-  namelist_kraken_v2 = pad_vector(namelist_kraken_v2, max_len),
-  namelist_dragen_v2 = pad_vector(namelist_dragen_v2, max_len),
-  
-  unique_to_kraken_v1_not_in_dragen = pad_vector(unique_to_kraken_v1_not_in_dragen, max_len),
-  unique_to_dragen_v1_not_in_kraken = pad_vector(unique_to_dragen_v1_not_in_kraken, max_len),
-  unique_to_kraken_v2_not_in_dragen = pad_vector(unique_to_kraken_v2_not_in_dragen, max_len),
-  unique_to_dragen_v2_not_in_kraken = pad_vector(unique_to_dragen_v2_not_in_kraken, max_len)
-)
-
-write.csv(df_unique, "unique_genuses.csv", row.names = FALSE)
-
-# Find viruses in df_strain that are NOT in df_v1
-unique_to_v2_not_in_v1 <- setdiff(names_v2, names_v1)
-
-# Find viruses in df_strainv1 that are NOT in df_v1
-unique_to_v2v1 <- setdiff(names_v2v1, names_v1)
-
-# Find viruses in df_strain that are NOT in df_strainv1
-unique_to_v2_not_in_v2v1 <- setdiff(names_v2, names_v2v1)
-
-# Print the list
-print(unique_to_v2_not_in_v1)
-print(unique_to_v2v1)
-print(unique_to_v2_not_in_v2v1)
-
-names_kraken <- read.csv("virus_names.csv", stringsAsFactors = FALSE)
-unique_names_kraken <- names_kraken$Virus.Name
-
-unique_to_v2_not_in_kraken <- setdiff(names_v2, unique_names_kraken)
-print(unique_to_v2_not_in_kraken)
-unique_to_kraken_not_in_v2 <- setdiff(unique_names_kraken, names_v2)
-print(unique_to_kraken_not_in_v2)
-
-print(names_v2)
-write.csv(names_v2, "names_v2.csv", row.names = FALSE)
 ```
 
 # Consolidate samples by fraction or location
@@ -920,13 +910,29 @@ consolidate <- function(df, consolidation.level = c("fraction", "WWTP", "WWTP_fr
   consolidation.level <- match.arg(consolidation.level)
   prefix <- sub("_processed$", "", sub("^df_", "", deparse(substitute(df))))
 
-  # Group by the chosen level and name
-  df_avg.relabund <- df %>%
+  # Add samples.total and samples.present before summarizing
+  df_sample_stats <- df %>%
     group_by(.data[[consolidation.level]], name) %>%
-    summarize(relabund.rpkm.mean = mean(relabund.rpkm, na.rm = TRUE), .groups = "drop") %>%
-    group_by(.data[[consolidation.level]]) %>%
-    mutate(relabund.rpkm.mean.normalized = relabund.rpkm.mean / sum(relabund.rpkm.mean, na.rm = TRUE)) %>%
-    ungroup()
+    summarize(
+      samples.total = n_distinct(sample),
+      samples.present = sum(alignedReadCount > 0, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    mutate(fraction.present = samples.present / samples.total)
+  
+  df_avg.relabund <- df %>%
+  group_by(.data[[consolidation.level]], name) %>%
+  summarize(relabund.rpkm.mean = mean(relabund.rpkm, na.rm = TRUE), .groups = "drop") %>%
+  group_by(.data[[consolidation.level]]) %>%
+  mutate(
+    relabund.rpkm.mean.normalized = relabund.rpkm.mean / sum(relabund.rpkm.mean, na.rm = TRUE),
+    log.relabund.norm = if_else(
+      relabund.rpkm.mean.normalized > 0,
+      log10(relabund.rpkm.mean.normalized),
+      NA_real_
+    )
+  ) %>%
+  ungroup()
 
   df_avg.rpkm <- df %>%
     group_by(.data[[consolidation.level]], name) %>%
@@ -944,12 +950,20 @@ consolidate <- function(df, consolidation.level = c("fraction", "WWTP", "WWTP_fr
   df_combined <- df_avg.relabund %>%
   left_join(df_avg.rpkm, by = c(consolidation.level, "name")) %>%
   left_join(df_avg.rpkm.norm.to.BCoV.recovery, by = c(consolidation.level, "name")) %>%
-  left_join(df_avg.rpkm.norm.to.BCoV.rpkm, by = c(consolidation.level, "name"))
+  left_join(df_avg.rpkm.norm.to.BCoV.rpkm, by = c(consolidation.level, "name")) %>%
+  left_join(df_sample_stats, by = c(consolidation.level, "name"))
 
   df_combined <- df_combined %>% mutate(present = if_else(rpkm.mean > 0, 1, 0))
   df_combined$present <- factor(df_combined$present, levels = c(0, 1))
   
-  # df_combined[[consolidation.level]] <- factor(df_combined[[consolidation.level]], levels = levels)
+  df_combined <- df_combined %>%
+    group_by(name) %>%
+    mutate(zscore = as.numeric(scale(relabund.rpkm.mean.normalized))) %>%
+    ungroup()
+  
+  df_combined <- df_combined %>%
+    left_join(panel %>% select(Reporting_Name, Genus_Name, strand.type, taxid),
+            by = c("name" = "Reporting_Name"))
   
   return(df_combined)
 }
@@ -983,6 +997,274 @@ df_solids_by_location_spike.removed_undropped <- consolidate(df_solids_spike.rem
 df_vsp_samples_by.fraction_has.spike_undropped <- consolidate(df_single_spike_samples_has_OC43_2_undropped, "fraction") # spike intact
 df_samples_by.fraction_spike.removed_undropped <- consolidate(df_samples_spike.removed_2_undropped, "fraction") # spike removed
 
+```
+
+# Heatmaps - Consolidated data
+```{r}
+library(taxize)
+library(ape)
+library(ggtree)
+library(ggtreeExtra)
+library(ggtext)
+Sys.setenv(ENTREZ_KEY = "cf7f61606d77d41cbb9b23f88e1fa12f8908")
+
+strand_colors <- c(
+  "ssRNA"   = "#33BBEE",
+  "dsRNA"   = "#0077BB",
+  "ssDNA"   = "#FDB863",
+  "dsDNA"   = "#EE7733",
+  "pdsDNA"  = "#CC3311"
+)
+strand_order <- c("ssRNA", "dsRNA", "ssDNA", "dsDNA", "pdsDNA")
+# Create the folder if it doesn't exist
+if (!dir.exists("heatmaps")) dir.create("heatmaps")
+
+
+heatmap.tree <- function(df, consolidation.level = c("fraction", "WWTP", "WWTP_fraction"), abundance_type = c("zscore", "fraction.present", "relabund.rpkm.mean.normalized", "log.relabund.norm"), 
+                         width, height, mid, low, high, vsp.label.loc = -1.5, tree.prop = 0.65, strand.prop = 0.066){
+  prefix <- sub("_processed$", "", sub("^df_", "", deparse(substitute(df))))
+  # Get unique taxid for each virus name
+  unique.taxids <- df %>%
+    distinct(name, taxid)
+  
+  lineages <- classification(unique.taxids$taxid, db = "ncbi")
+  
+  # Build a tree from tax IDs
+  tax_tree <- class2tree(lineages)$phylo
+  
+  # Replace tip labels on tree with my names list
+  tax_tree$tip.label <- unique.taxids$name
+  
+  # Plot tree
+  p_tree <- ggtree(tax_tree, layout = "rectangular")
+  p_tree + geom_tiplab(size = 3, offset = 0.05, align = TRUE) +
+    xlim(0, 200)  # adjust this upper limit to give more room for labels
+  
+  # 2) Extract the tip‐label order (top → bottom) from the tree
+  tip_order <- p_tree$data %>%
+    filter(isTip) %>% 
+    arrange(y) %>%
+    pull(label)
+  
+  # # Re‐factor your heatmap data to that order, and make BCoV spike grey
+  df_reordered <- df %>%
+    mutate(name = ifelse(
+      name == "Human coronavirus OC43 (HCoV_OC43)",
+      "<span style='color:gray;'>Human coronavirus OC43 (HCoV_OC43)</span>",
+      name
+    )) %>%
+    mutate(name = factor(name, levels = ifelse(
+      tip_order == "Human coronavirus OC43 (HCoV_OC43)",
+      "<span style='color:gray;'>Human coronavirus OC43 (HCoV_OC43)</span>",
+      tip_order
+    )))
+
+  # Ensure strand.type is a factor and the associated virus names are ordered same as tree tips
+  df_strand <- df_reordered %>%
+    select(name, strand.type) %>%
+    distinct() %>%
+    mutate(
+      name = factor(name, levels = tip_order),
+      strand.type = factor(strand.type, levels = strand_order) # and the legend is in order
+    )
+  
+  # Plot strand-type panel (one column)
+  strand_panel <- ggplot(df_strand, aes(x = "Strand Type", y = name, fill = strand.type)) +
+    geom_tile(color = "#696969") +
+    scale_fill_manual(values = strand_colors, name = "Strand Type") +
+    scale_y_discrete(position = "right") +
+    theme_minimal() +
+    theme(
+      axis.title = element_blank(),
+      axis.text.x = element_blank(),
+      axis.ticks.x = element_blank(),
+      axis.text.y = element_blank(),
+      panel.grid = element_blank(),
+      plot.margin = margin(t = 25, r = 5, b = 5, l = 0)
+    )
+  
+  heatmap.legend.title <- case_when(
+    abundance_type == "zscore" ~ "Z-Score",
+    abundance_type == "fraction.present" ~ "Fraction of Samples\nDetected in",
+    abundance_type == "relabund.rpkm.mean.normalized" ~ "Relative Abundance",
+    abundance_type == "log.relabund.norm" ~ "log₁₀(Relative Abundance)",
+    TRUE ~ abundance_type  # fallback in case of an unexpected input
+  )
+
+  # Working heatmap
+  heatmap_plot <- ggplot(df_reordered, aes(x = .data[[consolidation.level]], y = name, fill = .data[[abundance_type]])) +
+    geom_tile(color = "#696969") +
+    scale_fill_gradient2(
+      low = "#0571b0", mid = "white", high = "#ca0020",
+      midpoint = mid, limits = c(low, high), name = heatmap.legend.title,
+      na.value = "#D6E2EE",
+    ) +
+    scale_y_discrete(position = "right") +
+    theme_minimal() +
+    theme(
+      axis.text.x  = element_text(angle = 45, hjust = 1),
+      axis.text.y = element_markdown(size = 8),
+      axis.title   = element_blank(),
+      panel.grid   = element_blank()
+    )
+  
+  # Create grob for label
+  vsp_label <- grid::textGrob(
+    "VSP v2 Target",
+    gp = gpar(fontsize = 10, fontface = "bold"),
+    hjust = vsp.label.loc  # 2 = left, -2 = right
+  )
+  
+  # Rebuild the heatmap with coord_cartesian(clip = "off") to prevent clipping
+  heatmap_plot_labeled <- heatmap_plot +
+    annotation_custom(
+      grob = vsp_label,
+      xmin = -Inf, xmax = Inf,
+      ymin = length(levels(df_reordered$name)) + 1.5,  # move upward
+      ymax = length(levels(df_reordered$name)) + 1.5
+    ) +
+    coord_cartesian(clip = "off")  # ⬅ prevents label clipping
+  
+  # Remove right margin of the tree and left margin of the heatmap
+  p_tree <- p_tree + theme(plot.margin = margin(t = 5, r = 0, b = 5, l = 5))
+  heatmap_plot_labeled <- heatmap_plot_labeled + theme(plot.margin = margin(t = 40, r = 60, b = 10, l = 0))
+  
+  # Combine the strand panel and z-score heatmap *first*, so their legends are aligned
+  heatmap.panels <- strand_panel + heatmap_plot_labeled + 
+    plot_layout(ncol = 2, widths = c(strand.prop, 1), guides = "collect") & 
+    theme(legend.position = "right")
+  
+  # Combine the tree with the right panels
+  final <- p_tree + heatmap.panels + plot_layout(ncol = 2, widths = c(tree.prop, 1))
+  final
+  
+  print(final)
+  
+  # Save the plot to PDF
+  ggsave(
+    file     = file.path("heatmaps", paste0("heatmap_", abundance_type, "_", prefix, ".pdf")),
+    plot     = final,                            # your final combined plot
+    device   = cairo_pdf,                        # better text rendering
+    width    = width,                               # adjust as needed
+    height   = height,
+    units    = "in"
+  )
+  
+  # Return plot
+  return(final)
+}
+
+heatmap.tree(df_samples_by.WWTP.fraction_spike.removed, "WWTP_fraction", "fraction.present", w=12, h=12, mid=0.0001, low=0.0001, high=1, vsp.label.loc = -1.85, tree.prop=0.65, strand.prop=0.066)
+min(df_samples_by.WWTP.fraction_spike.removed$log.relabund.norm, na.rm = TRUE)
+heatmap.tree(df_samples_by.WWTP.fraction_spike.removed, "WWTP_fraction", "log.relabund.norm", w=12, h=12, mid=-5.7, low=-5.7, high=0, vsp.label.loc = -1.75, tree.prop=0.65, strand.prop=0.066)
+
+heatmap.tree(df_samples_by.fraction_spike.removed, "fraction", "fraction.present", w=8, h=12, mid=0.0001, low=0.0001, high=1, vsp.label.loc = -1.85, tree.prop=0.85, strand.prop=0.2)
+min(df_samples_by.fraction_spike.removed$log.relabund.norm, na.rm = TRUE)
+heatmap.tree(df_samples_by.fraction_spike.removed, "fraction", "log.relabund.norm", w=8.5, h=12, mid=-6.4, low=-6.4, high=0, vsp.label.loc = -1.75, tree.prop=0.85, strand.prop=0.2)
+
+heatmap.tree(df_vsp_samples_by.fraction_has.spike_undropped, "fraction", "fraction.present", w=8, h=12, mid=0.0001, low=0.0001, high=1, vsp.label.loc = -1.85, tree.prop=0.85, strand.prop=0.2)
+min(df_vsp_samples_by.fraction_has.spike_undropped$log.relabund.norm, na.rm = TRUE)
+heatmap.tree(df_vsp_samples_by.fraction_has.spike_undropped, "fraction", "log.relabund.norm", w=8.5, h=12, mid=-7.6, low=-7.6, high=0, vsp.label.loc = -1.75, tree.prop=0.85, strand.prop=0.2)
+
+
+
+
+```
+
+# Strand type
+```{r}
+    
+summarize.by.strand.type <- function(df, consolidation.level = c("fraction", "WWTP")) {
+  consolidation.level <- match.arg(consolidation.level)
+
+  # Perform summarization and assign to result_df
+  result_df <- df %>%
+    group_by(.data[[consolidation.level]], strand.type) %>%
+    summarize(
+      relabund.rpkm.mean.normalized = sum(relabund.rpkm.mean.normalized, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    mutate(strand.type = factor(strand.type, levels = strand_order))
+
+  return(result_df)
+}
+
+df_strand.type_fraction_spike.removed <- summarize.by.strand.type(df_samples_by.fraction_spike.removed, "fraction")
+df_strand.type_fraction_spike.removed$fraction <- factor(df_strand.type_fraction_spike.removed$fraction,
+                                                         levels = levels.fraction)
+
+df_strand.type_influent_by_wwtp_spike.removed <- summarize.by.strand.type(df_influent_by_location_spike.removed, "WWTP")
+df_strand.type_influent_by_wwtp_spike.removed$WWTP <- factor(df_strand.type_influent_by_wwtp_spike.removed$WWTP,
+                                                         levels = levels.WWTP)
+
+df_strand.type_solids_by_wwtp_spike.removed <- summarize.by.strand.type(df_solids_by_location_spike.removed, "WWTP")
+df_strand.type_solids_by_wwtp_spike.removed$WWTP <- factor(df_strand.type_solids_by_wwtp_spike.removed$WWTP,
+                                                         levels = levels.WWTP)
+
+
+plot.strand.type <- function(df, consolidation.level = c("fraction", "WWTP")) {
+  consolidation.level <- match.arg(consolidation.level)
+
+  p_strand <- ggplot(df, 
+                     aes(x = .data[[consolidation.level]], y = relabund.rpkm.mean.normalized, fill = strand.type)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = strand_colors) +
+  labs(
+    x = NULL,
+    y = "Normalized Relative Abundance (RPKM)",
+    fill = "Strand Type"
+  ) +
+  theme_minimal()
+
+p_strand
+}
+plot.strand.type(df_strand.type_fraction_spike.removed, "fraction")
+plot.strand.type(df_strand.type_influent_by_wwtp_spike.removed, "WWTP")
+plot.strand.type(df_strand.type_solids_by_wwtp_spike.removed, "WWTP")
+
+
+
+
+p_strand <- ggplot(df_strand.type_fraction_spike.removed, aes(x = fraction, y = relabund.rpkm.mean.normalized, fill = strand.type)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = strand_colors) +
+  labs(
+    x = "Fraction",
+    y = "Normalized Relative Abundance (RPKM)",
+    fill = "Strand Type"
+  ) +
+  theme_minimal()
+
+p_strand
+
+
+
+summarize.by.strand.type <- function(df) {
+  df %>%
+    group_by(fraction, strand.type) %>%
+    summarize(
+      relabund.rpkm.mean.normalized = sum(relabund.rpkm.mean.normalized, na.rm = TRUE),
+      .groups = "drop"
+    )
+}
+
+df_strand.type_fraction_spike.removed <- summarize.by.strand.type(df_samples_by.fraction_spike.removed) # all samples including controls
+
+df_strand.type_fraction_spike.removed <- df_strand.type_fraction_spike.removed %>%
+  mutate(strand.type = factor(strand.type, levels = strand_order))
+
+
+p_strand <- ggplot(df_strand.type_fraction_spike.removed, aes(x = fraction, y = relabund.rpkm.mean.normalized, fill = strand.type)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = strand_colors) +
+  labs(
+    x = "Fraction",
+    y = "Normalized Relative Abundance (RPKM)",
+    fill = "Strand Type"
+  ) +
+  theme_minimal()
+
+p_strand
 
 ```
 
@@ -1005,7 +1287,7 @@ consolidated.plot.by.virus <- function(df, consolidation.level = c("fraction", "
   # Individual titles
   title <- paste("Relative Abundance of", title_base, "\n", ref_df)
 
-  p <- ggplot(df, aes(x = name, y = relabund.rpkm.mean, fill = .data[[consolidation.level]])) +
+  p <- ggplot(df, aes(x = name, y = relabund.rpkm.mean.normalized, fill = .data[[consolidation.level]])) +
     geom_bar(stat = "identity", color = "Black") +
     scale_x_discrete(expand = c(0.05, 0.09)) +
     labs(
@@ -1047,6 +1329,8 @@ consolidated.plot.by.virus(df_solids_by_location_spike.removed, "WWTP", w=15, h=
 # By fraction
 consolidated.plot.by.virus(df_vsp_samples_by.fraction_has.spike, "fraction", w=15, h=10)
 consolidated.plot.by.virus(df_samples_by.fraction_spike.removed, "fraction", w=15, h=10)
+
+consolidated.plot.by.virus(df_top13, "fraction", w=15, h=10)
 
 ```
 
@@ -1126,6 +1410,23 @@ upset.plot(df_samples_by.fraction_spike.removed, "fraction", w=18, h=10, t=2, b=
 # By WWTP and fraction
 upset.plot(df_vsp_samples_by.WWTP.fraction_has.spike, "WWTP_fraction", w=22, h=10, t=2, b=0.6)
 upset.plot(df_samples_by.WWTP.fraction_spike.removed, "WWTP_fraction", w=22, h=10, t=2, b=0.6)
+
+
+
+
+# Step 1: Find top 13 names with highest abundance across all fractions
+top_names_df <- df_samples_by.fraction_spike.removed %>%
+  group_by(name) %>%
+  summarize(sum_abundance = sum(relabund.rpkm.mean.normalized, na.rm = TRUE), .groups = "drop") %>%
+  slice_max(order_by = sum_abundance, n = 13, with_ties = FALSE)
+
+# Step 2: Filter original dataframe to just those top names
+df_top13 <- df_samples_by.fraction_spike.removed %>%
+  semi_join(top_names_df, by = "name")
+
+df_top13$name <- factor(df_top13$name, levels = top_names_df$name)
+
+upset.plot(df_top13, "fraction", w=22, h=10, t=2, b=0.6)
 
 ```
 
@@ -1487,30 +1788,222 @@ plots_vsp_samples_bcov.spike.removed_by_fraction <- plot_consolidated_abundance(
 ```
 
 
-# Plot just Adenovirus F
+# Plot just BCoV and Adenovirus F to find outliers
 ```{r}
-df_HAdVF <- df_complete %>%
-  filter(Name == "Human adenovirus F")
+scatter.single.viruses <- function(df, virus, type){
+  df_filtered <- df %>%
+    filter(name == virus)
+    
+  p_relbund <- ggplot(df_filtered, aes(x = sample, y = relabund.rpkm)) +
+    geom_point() +
+    scale_y_continuous(limits = c(0, 1)) +
+    labs(x = NULL, y = "Relative Abundance (RPKM)") +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_blank(),
+      axis.ticks.x = element_blank()
+    )
   
-p <- ggplot(df_HAdVF, aes(x = Sample, y = RelAbund.filtered, fill = fraction)) +
-  geom_col() +
-  labs(title = "Relative Abundance of Human Adenovirus F by Sample",
-       x = "Sample",
-       y = "Filtered Relative Abundance") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  p_rpkm <- ggplot(df_filtered, aes(x = sample, y = rpkm)) +
+    geom_point() +
+    labs(x = "Sample", y = "Abundance (RPKM)") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  p <- (p_relbund / p_rpkm) + patchwork::plot_annotation(title = paste(virus, "-", type))
+  
+  return(p)
+}
 
-p <- ggplot(df_HAdVF, aes(x = Sample, y = Abundance, fill = fraction)) +
-  geom_col() +
-  labs(title = "Sequence Count of Human Adenovirus F by Sample",
-       x = "Sample",
-       y = "Aligned Sequence Count") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+scatter.single.viruses(df_solids_spike.removed_2, virus="Human adenovirus F", type="Solids")
+scatter.single.viruses(df_solids_has_OC43_2, virus=bcov.spike, type="Solids")
 
-p
+scatter.single.viruses(df_influent_spike.removed_2, virus="Human adenovirus F", type="Influent")
+scatter.single.viruses(df_influent_has_OC43_2, virus=bcov.spike, type="Influent")
+
 ```
 
+# SARS-CoV-2 plots
+```{r}
+sars <- "Severe acute respiratory syndrome coronavirus 2 (SARS-CoV-2)"
+
+df_sars_influent <- df_influent_spike.removed_2_undropped %>% filter(name == sars)
+df_sars_solids <- df_solids_spike.removed_2_undropped %>% filter(name == sars)
+
+df_sars_influent_2 <- df_sars_influent %>%
+  left_join(
+    influent_ddpcr %>% select(sample.edit, `N1_Concentration_Merged`, `N2_Concentration_Merged`),
+    by = "sample.edit"
+  )
+
+df_sars_solids_2 <- df_sars_solids %>%
+  left_join(
+    solids_ddpcr %>% select(sample.edit, `N_Gene_gc_per_g_dry_weight`, `S_Gene_gc_per_g_dry_weight`),
+    by = "sample.edit"
+  ) %>%
+  mutate(
+    N_Gene_gc_per_g_dry_weight = as.numeric(N_Gene_gc_per_g_dry_weight),
+    S_Gene_gc_per_g_dry_weight = as.numeric(S_Gene_gc_per_g_dry_weight)
+  )
+
+library(lubridate)
+
+df_sars_influent_2 <- df_sars_influent_2 %>%
+  mutate(
+    date_str = paste0("2022", substr(sample.edit, 1, 4)),  # Add year prefix
+    date = ymd(date_str)  # Convert to Date
+  )
+
+df_sars_solids_2 <- df_sars_solids_2 %>%
+  mutate(
+    date_str = paste0("2022", substr(sample.edit, 1, 4)),  # Add year prefix
+    date = ymd(date_str)  # Convert to Date
+  )
+
+dir.create("sars-cov-2", showWarnings = FALSE)
+dir.create("sars-cov-2/sars-inf", showWarnings = FALSE)
+dir.create("sars-cov-2/sars-sol", showWarnings = FALSE)
+dir.create("sars-cov-2/sars-combined", showWarnings = FALSE)
+
+########################################
+sars.by.date <- function(city.name){
+  
+  df_inf <- df_sars_influent_2 %>%
+    filter(city == city.name)
+  
+  df_sol <- df_sars_solids_2 %>%
+    filter(city == city.name)
+  
+  # Define base theme
+  base_theme <- theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  # Define base scales
+  base_scales <- list(
+    scale_color_manual(values = c("N1" = "lightskyblue1", "N2" = "steelblue1", "N Gene" = "mediumblue", "S Gene" = "navy", "Relative\nAbundance\n(RPKM)" = "red")),
+    scale_x_date(
+      limits = as.Date(c("2022-05-01", "2022-12-31")),
+      date_breaks = "1 month",
+      date_labels = "%b"
+    )
+  )
+  
+  # ddPCR conc plot - Influent
+  p_sars_conc_inf <- ggplot(df_inf, aes(x = date)) +
+    geom_line(aes(y = N1_Concentration_Merged, color = "N1")) +
+    geom_point(aes(y = N1_Concentration_Merged, color = "N1")) +
+    geom_line(aes(y = N2_Concentration_Merged, color = "N2")) +
+    geom_point(aes(y = N2_Concentration_Merged, color = "N2")) +
+    labs(x=NULL, y = "Concentration (copies/mL)", color = "ddPCR Probe\n(UCD)") +
+    base_scales +
+    base_theme +
+    scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0.005, 0.05)))
+  p_sars_conc_inf
+  
+  # Relative abundance plot - Influent
+  p_sars_relabund_inf <- ggplot(df_inf, aes(x = date)) +
+    geom_line(aes(y = relabund.rpkm, color = "Relative\nAbundance\n(RPKM)")) +
+    geom_point(aes(y = relabund.rpkm, color = "Relative\nAbundance\n(RPKM)")) +
+    labs(x = NULL, y = "Relative Abundance of SARS-CoV-2 (RPKM)", color = NULL) +
+    base_scales +
+    base_theme +
+    scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0.005, 0.05)))
+  p_sars_relabund_inf
+  
+  p_sars_inf <- (p_sars_conc_inf / p_sars_relabund_inf) + patchwork::plot_annotation(title = paste(city.name, "-", "Influent"))
+  p_sars_inf
+  ggsave(file = file.path("sars-cov-2/sars-inf", paste0(city.name, "_", "influent", ".pdf")), 
+         plot = p_sars_inf, width = 7.4, height = 8)
+  
+  
+  p_sars_conc_sol <- ggplot() +  # no global data here anymore
+    # N Gene
+    geom_line(
+      data = df_sol %>% filter(!is.na(N_Gene_gc_per_g_dry_weight)),
+      aes(x = date, y = as.numeric(N_Gene_gc_per_g_dry_weight), color = "N Gene", group = "N Gene")
+    ) +
+    geom_point(
+      data = df_sol %>% filter(!is.na(N_Gene_gc_per_g_dry_weight)),
+      aes(x = date, y = as.numeric(N_Gene_gc_per_g_dry_weight), color = "N Gene", group = "N Gene")
+    ) +
+    geom_line(
+      data = df_sol %>% filter(!is.na(S_Gene_gc_per_g_dry_weight)),
+      aes(x = date, y = as.numeric(S_Gene_gc_per_g_dry_weight), color = "S Gene", group = "S Gene")
+    ) +
+    geom_point(
+      data = df_sol %>% filter(!is.na(S_Gene_gc_per_g_dry_weight)),
+      aes(x = date, y = as.numeric(S_Gene_gc_per_g_dry_weight), color = "S Gene", group = "S Gene")
+    ) +
+    labs(
+      x = NULL,
+      y = "Concentration (copies/g dry weight)",
+      color = "ddPCR Probe\n(Eurofins)"
+    ) +
+    base_scales +
+    base_theme +
+    scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0.005, 0.05)))
+  p_sars_conc_sol
+  
+  p_sars_relabund_sol <- ggplot(df_sol, aes(x = date)) +
+    geom_line(aes(y = relabund.rpkm, color = "Relative\nAbundance\n(RPKM)")) +
+    geom_point(aes(y = relabund.rpkm, color = "Relative\nAbundance\n(RPKM)")) +
+    labs(x=NULL, y = "Relative Abundance of SARS-CoV-2 (RPKM)", color = NULL) +
+    base_scales +
+    base_theme +
+    scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0.005, 0.05)))
+  p_sars_relabund_sol
+  
+  p_sars_sol <- (p_sars_conc_sol / p_sars_relabund_sol) + 
+    patchwork::plot_annotation(title = paste(city.name, "-", "Solids"))
+  p_sars_sol
+  ggsave(file = file.path("sars-cov-2/sars-sol", paste0(city.name, "_", "solids", ".pdf")), 
+         plot = p_sars_sol, width = 7.4, height = 8)
+  
+  # Get legend info
+  library(cowplot)
+  legend_conc_inf <- get_legend(p_sars_conc_inf)
+  legend_conc_sol <- get_legend(p_sars_conc_sol)
+  legend_relabund <- get_legend(p_sars_relabund_inf)
+  
+  # Take off all legends
+  p_sars_conc_inf <- p_sars_conc_inf + theme(legend.position = "none")
+  p_sars_relabund_inf <- p_sars_relabund_inf + theme(legend.position = "none")
+  p_sars_conc_sol <- p_sars_conc_sol + theme(legend.position = "none")
+  p_sars_relabund_sol <- p_sars_relabund_sol + theme(legend.position = "none")
+  
+  p_sars_inf_2 <- (p_sars_conc_inf / p_sars_relabund_inf) + labs(title = "Influent") & 
+  theme(plot.title = element_text(hjust = 0.5))
+  p_sars_sol_2 <- (p_sars_conc_sol / p_sars_relabund_sol) + labs(title = "Solids") & 
+  theme(plot.title = element_text(hjust = 0.5))
+  p_sars_inf_2
+  p_sars_sol_2
+  
+  
+  legend_stack <- patchwork::wrap_elements(full = legend_conc_inf) /
+                  patchwork::wrap_elements(full = legend_conc_sol) /
+                  patchwork::wrap_elements(full = legend_relabund)
+  
+  p_sars <- (p_sars_inf_2 | p_sars_sol_2 | legend_stack) + plot_layout(widths = c(1, 1, 0.3)) + 
+    patchwork::plot_annotation(title = paste(city.name, "- SARS-CoV-2"))
+  p_sars
+  
+  # Save plots in separate folders
+  ggsave(file = file.path("sars-cov-2/sars-combined", paste0(city.name, "_", "combined_SARS", ".pdf")), 
+         plot = p_sars, width = 12, height = 8)
+  
+  return(p_sars)
+}
+sars.by.date(city.name="Davis")
+sars.by.date(city.name="Esparto")
+sars.by.date(city.name="Los Banos")
+sars.by.date(city.name="Turlock")
+sars.by.date(city.name="Winters")
+sars.by.date(city.name="Woodland")
+sars.by.date(city.name="Merced")
+sars.by.date(city.name="Modesto")
+
+
+```
 
 # genus level analysis
 ```{r}

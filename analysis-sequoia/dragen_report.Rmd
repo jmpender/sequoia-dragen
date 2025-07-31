@@ -1,0 +1,179 @@
+---
+title: "dragen_report"
+output: html_document
+date: "2025-07-28"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+setwd("~/github/sequoia-dragen/outputs-sequoia/vsp")
+rm(list = ls())
+
+library(readr)
+library(jsonlite)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(purrr)
+library(patchwork)
+library(tidyverse)
+library(stringr)
+library(glue)
+library(writexl)
+library(readxl)
+library(openxlsx)
+library(ggpubr)
+library(forcats)
+library(grid)
+
+dragen_report <- read_excel("../../inputs-sequoia/dragen_report.xlsx")
+
+single_spike_samples_filtered <- read_excel("../../inputs-sequoia/single_spike_samples_filtered_list.xlsx")
+influent_samples_filtered <- read_excel("../../inputs-sequoia/influent_samples_filtered_list.xlsx")
+solids_samples_filtered <- read_excel("../../inputs-sequoia/solids_samples_filtered_list.xlsx")
+
+```
+
+```{r}
+
+name_map <- c(
+  "Abs Targeted Viral"                      = "VSP Target",
+  "Abs Untargeted Viral (Other)"            = "Untargeted Viral (Other)",
+  "Abs Untargeted Viral (Phage)"            = "Untargeted Viral (Phage)",
+  "Abs Untargeted Fungal (Other)"           = "Untargeted Fungal (Other)",
+  "Abs Untargeted Fungal (Ribosomal DNA)"   = "Untargeted Fungal (Ribosomal DNA)",
+  "Abs Untargeted Parasitic (Other)"        = "Untargeted Parasitic (Other)",
+  "Abs Untargeted Parasitic (Ribosomal DNA)"= "Untargeted Parasitic (Ribosomal DNA)",
+  "Abs Untargeted Human (Other)"            = "Untargeted Human (Other)",
+  "Abs Untargeted Human (Coding Sequence)"  = "Untargeted Human (Coding Sequence)",
+  "Abs Untargeted Human (Ribosomal DNA)"    = "Untargeted Human (Ribosomal DNA)",
+  "Abs Untargeted Bacterial (Other)"        = "Untargeted Bacterial (Other)",
+  "Abs Untargeted Bacterial (Plasmid)"      = "Untargeted Bacterial (Plasmid)",
+  "Abs Untargeted Bacterial (Ribosomal DNA)"= "Untargeted Bacterial (Ribosomal DNA)",
+  "Read Classification (Ambiguous Proportion)"     = "Ambiguous",
+  "Read Classification (Unclassified Proportion)"  = "Unclassified",
+  "Read Classification (Low Complexity Proportion)"= "Low Complexity"
+)
+
+df_dragen <- dragen_report %>%
+  select(Accession, all_of(names(name_map))) %>%
+  rename_with(~ name_map[.x], .cols = names(name_map))
+
+```
+
+```{r}
+df_dragen_samples <- df_dragen %>%
+  filter(Accession %in% single_spike_samples_filtered$sample) %>%
+  left_join(
+    single_spike_samples_filtered_list %>%
+      select(sample, fraction, WWTP, city, WWTP_fraction),
+    by = c("Accession" = "sample")
+  )
+
+df_dragen_influent <- df_dragen %>%
+  filter(Accession %in% influent_samples_filtered$sample) %>%
+  left_join(
+    single_spike_samples_filtered_list %>%
+      select(sample, fraction, WWTP, city, WWTP_fraction),
+    by = c("Accession" = "sample")
+  )
+
+df_dragen_solids <- df_dragen %>%
+  filter(Accession %in% solids_samples_filtered$sample) %>%
+  left_join(
+    single_spike_samples_filtered_list %>%
+      select(sample, fraction, WWTP, city, WWTP_fraction),
+    by = c("Accession" = "sample")
+  )
+
+```
+
+# Consolidate dataframes by type
+```{r}
+
+df_fraction_means <- df_dragen_samples %>%
+  group_by(fraction) %>%
+  summarize(across(
+    .cols = !any_of(c("Accession", "fraction", "WWTP", "city", "WWTP_fraction", "sum")),
+    .fns = \(x) mean(x, na.rm = TRUE)
+  ), .groups = "drop") %>%
+  pivot_longer(
+    cols = -fraction,
+    names_to = "source_type",
+    values_to = "relabund_mean"
+  ) %>%
+  group_by(fraction) %>%
+  mutate(relabund_mean_normalized = relabund_mean / sum(relabund_mean, na.rm = TRUE)) %>%
+  ungroup()
+
+df_WWTP_fraction_means <- df_dragen_samples %>%
+  group_by(WWTP_fraction) %>%
+  summarize(across(
+    .cols = !any_of(c("Accession", "fraction", "WWTP", "city", "WWTP_fraction", "sum")),
+    .fns = \(x) mean(x, na.rm = TRUE)
+  ), .groups = "drop") %>%
+  pivot_longer(
+    cols = -WWTP_fraction,
+    names_to = "source_type",
+    values_to = "relabund_mean"
+  ) %>%
+  group_by(WWTP_fraction) %>%
+  mutate(relabund_mean_normalized = relabund_mean / sum(relabund_mean, na.rm = TRUE)) %>%
+  ungroup()
+
+df_influent_means <- df_dragen_influent %>%
+  group_by(WWTP) %>%
+  summarize(across(
+    .cols = !any_of(c("Accession", "fraction", "WWTP", "city", "WWTP_fraction", "sum")),
+    .fns = \(x) mean(x, na.rm = TRUE)
+  ), .groups = "drop") %>%
+  pivot_longer(
+    cols = -WWTP,
+    names_to = "source_type",
+    values_to = "relabund_mean"
+  ) %>%
+  group_by(WWTP) %>%
+  mutate(relabund_mean_normalized = relabund_mean / sum(relabund_mean, na.rm = TRUE)) %>%
+  ungroup()
+
+df_solids_means <- df_dragen_solids %>%
+  group_by(WWTP) %>%
+  summarize(across(
+    .cols = !any_of(c("Accession", "fraction", "WWTP", "city", "WWTP_fraction", "sum")),
+    .fns = \(x) mean(x, na.rm = TRUE)
+  ), .groups = "drop") %>%
+  pivot_longer(
+    cols = -WWTP,
+    names_to = "source_type",
+    values_to = "relabund_mean"
+  ) %>%
+  group_by(WWTP) %>%
+  mutate(relabund_mean_normalized = relabund_mean / sum(relabund_mean, na.rm = TRUE)) %>%
+  ungroup()
+
+
+
+```
+
+
+```{r}
+source_order <- c("VSP Target", "Untargeted Viral (Other)", "Untargeted Viral (Phage)", 
+                  "Untargeted Fungal (Other)", "Untargeted Fungal (Ribosomal DNA)", 
+                  "Untargeted Parasitic (Other)", "Untargeted Parasitic (Ribosomal DNA)",
+                  "Untargeted Human (Other)", "Untargeted Human (Coding Sequence)", "Untargeted Human (Ribosomal DNA)",
+                  "Ambiguous", "Unclassified", "Low Complexity",
+                  "Untargeted Bacterial (Plasmid)", "Untargeted Bacterial (Ribosomal DNA)", "Untargeted Bacterial (Other)"
+                  )
+
+source_colors <- c("VSP Target" = "#CC3311", "Untargeted Viral (Other)" = "#EE7733", "Untargeted Viral (Phage)" = "#F49B66", 
+                  "Untargeted Fungal (Other)" = "#009988", "Untargeted Fungal (Ribosomal DNA)" = "#66CFC0", 
+                  "Untargeted Parasitic (Other)" = "#EE3377", "Untargeted Parasitic (Ribosomal DNA)" = "#F599B8",
+                  "Untargeted Human (Other)" = "#0077BB", "Untargeted Human (Coding Sequence)" = "#66BBDD", "Untargeted Human (Ribosomal DNA)" = "#99D0EE",
+                  "Ambiguous" = "#BBBBBB", "Unclassified" = "#DDDDDD", "Low Complexity" = "#EEEEEE",
+                  "Untargeted Bacterial (Plasmid)" = "#33BBEE", "Untargeted Bacterial (Ribosomal DNA)" = "#99DEF7", "Untargeted Bacterial (Other)" = "#BFEAFB"
+                  )
+
+```
+
+
