@@ -21,6 +21,12 @@ library(jsonlite)
 library(dplyr)
 library(tidyr)
 library(ggplot2)
+library(ggtree)
+library(ggtreeExtra)
+library(ggtext)
+library(grid)
+library(taxize)
+library(ape)
 library(purrr)
 library(patchwork)
 library(tidyverse)
@@ -31,8 +37,10 @@ library(readxl)
 library(openxlsx)
 library(ggpubr)
 library(forcats)
-library(grid)
-# library(ComplexUpset)
+library(ggpmisc)
+library(tibble)
+library(lubridate)
+library(cowplot)
 
 ```
 
@@ -46,24 +54,6 @@ panel <- read_excel("../../inputs-sequoia/genus_family.xlsx")
 
 dragen_report <- read_excel("../../inputs-sequoia/dragen_report.xlsx")
 
-```
-
-# Optional: single kraken file option
-```{r}
-kraken_df <- read.table("../../inputs-sequoia/kraken/1130_ESP_SOL_S235_L002.krk.txt", sep = "\t", header = FALSE, stringsAsFactors = FALSE)
-
-kraken_df <- read_tsv(
-  "../../inputs-sequoia/kraken/1130_ESP_SOL_S235_L002.krk.txt",
-  col_names = c(
-    "percentage",
-    "reads_clade",
-    "reads_taxon",
-    "rank_code",
-    "taxon_ID",
-    "taxon_name"
-  )
-  
-)
 ```
 
 # Read in Kraken data (for PMMoV and other non-targets, etc)
@@ -101,33 +91,6 @@ kraken_df$sample <- gsub("_", "-", kraken_df$sample)
 kraken_pmmov <- kraken_df %>%
   filter(taxon_ID == 12239) %>%
   select(sample, percent.pmmov.kraken = percentage, pmmov.reads.kraken = reads_taxon)
-
-```
-
-# Optional: single Dragen .json file option
-```{r}
-# load DRAGEN output
-file <- "../../inputs-sequoia/sequoia-vsp/0818-WOD-SOL.VSPv2.report.json"
-json_data <- fromJSON(file, simplifyDataFrame = FALSE)
-
-df_troubleshoot <- data.frame()
-microorganisms <- json_data$targetReport$microorganisms
-
-sample_name = sub("\\..*", "", basename(file))
-df <- extract_microorganism_df(microorganisms, sample_name)
-
-df$genus.name <- panel$Genus_Name[match(df$name, panel$Reporting_Name)]
-df$strand.type <- panel$Type[match(df$name, panel$Reporting_Name)]
-  
-df$fraction <- case_when(
-      grepl("(^|-)INF$", df.amr.markers.single$sample) ~ "Influent",
-      grepl("(^|-)SOL$", df.amr.markers.single$sample) ~ "Solids",
-      TRUE ~ "Other" 
-)
-
-df.removed.spike <- df %>% filter(!Name %in% bcov.spike)
-
-df.microorganisms.single$relabund.rpkm <- as.numeric(df.microorganisms.single$rpkm) / sum(as.numeric(df.microorganisms.single$rpkm), na.rm = TRUE)
 
 ```
 
@@ -172,7 +135,6 @@ extract_microorganism_df <- function(microorganisms, sample_name) {
   
   return(df)
 }
-
 
   df_vsp <- data.frame()
   
@@ -1090,11 +1052,6 @@ df_top13_solids_spike.removed <- top_viruses(df_solids_by.location_direct.compar
 
 # Heatmaps - Consolidated data
 ```{r}
-library(taxize)
-library(ape)
-library(ggtree)
-library(ggtreeExtra)
-library(ggtext)
 Sys.setenv(ENTREZ_KEY = "cf7f61606d77d41cbb9b23f88e1fa12f8908")
 
 strand_colors <- c(
@@ -1514,7 +1471,6 @@ df_solids_by.location_direct.compare_spike.removed_family   <- summarize_by_fami
 
 # HPI
 ```{r}
-library(ggpmisc)
 
 # Healthy Places Indexes
 hpi <- read_excel("../../inputs-sequoia/healthy-places.xlsx")
@@ -1655,8 +1611,6 @@ plot_specs <- list(
   sol_all_wwtps      = summary_sol_all_wwtps,
   sol_direct_compare = summary_sol_direct_compare
 )
-
-library(tibble)
 
 # What to plot, where to save it, and filename suffix
 plot_y_specs <- tribble(
@@ -2101,7 +2055,6 @@ df_sars_solids_2 <- df_sars_solids %>%
     S_Gene_gc_per_g_dry_weight = as.numeric(S_Gene_gc_per_g_dry_weight)
   )
 
-library(lubridate)
 
 df_sars_influent_2 <- df_sars_influent_2 %>%
   mutate(
@@ -2215,7 +2168,6 @@ sars.by.date <- function(city.name){
          plot = p_sars_sol, width = 7.4, height = 8)
   
   # Get legend info
-  library(cowplot)
   legend_conc_inf <- get_legend(p_sars_conc_inf)
   legend_conc_sol <- get_legend(p_sars_conc_sol)
   legend_relabund <- get_legend(p_sars_relabund_inf)
