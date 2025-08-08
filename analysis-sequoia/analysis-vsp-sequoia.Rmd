@@ -447,73 +447,14 @@ remove_spikes <- function(df, spike_names) {
   df %>% filter(!name %in% spike_names)
 }
 
-df_tri_spike_samples_spike.removed <- remove_spikes(df_tri_spike_samples, tri.spike)
-df_samples_spike.removed <- remove_spikes(df_single_spike_samples_has_OC43, bcov.spike)
-df_influent_spike.removed <- remove_spikes(df_influent_has_OC43, bcov.spike)
-df_solids_spike.removed <- remove_spikes(df_solids_has_OC43, bcov.spike)
+df_tri_spike_samples_spike.rm <- remove_spikes(df_tri_spike_samples, tri.spike)
+df_samples_spike.rm <- remove_spikes(df_single_spike_samples_has_OC43, bcov.spike)
+df_influent_spike.rm <- remove_spikes(df_influent_has_OC43, bcov.spike)
+df_solids_spike.rm <- remove_spikes(df_solids_has_OC43, bcov.spike)
 
-df_samples_spike.removed_direct.compare <- remove_spikes(df_single_spike_samples_has_OC43_direct.compare, bcov.spike)
-df_influent_spike.removed_direct.compare <- remove_spikes(df_influent_has_OC43_direct.compare, bcov.spike)
-df_solids_spike.removed_direct.compare <- remove_spikes(df_solids_has_OC43_direct.compare, bcov.spike)
-
-```
-
-# Optional: Consolidate to Genera
-```{r}
-summarize_by_genus <- function(df) {
-  df %>%
-    group_by(sample, genus.name) %>%
-    summarize(
-      alignedReadCount = sum(alignedReadCount, na.rm = TRUE),
-      rpkm = sum(rpkm, na.rm = TRUE),
-      .groups = "drop"
-    )
-}
-
-df_vsp_genera <- summarize_by_genus(df_vsp_expanded_complete) # all samples including controls
-
-# nonsamples
-df_vsp_controls_genera <- summarize_by_genus(df_controls)
-df_vsp_nonsamples_genera <- summarize_by_genus(df_nonsamples)
-
-# samples without spikes removed
-df_tri_spike_samples_genera <- summarize_by_genus(df_tri_spike_samples)
-df_samples_genera <- summarize_by_genus(df_single_spike_samples_has_OC43)
-df_influent_genera <- summarize_by_genus(df_influent_has_OC43)
-df_solids_genera <- summarize_by_genus(df_solids_has_OC43)
-
-# samples with spikes removed
-df_tri_spike_samples_spike.removed_genera <- summarize_by_genus(df_tri_spike_samples_spike.removed)
-df_samples_spike.removed_genera <- summarize_by_genus(df_samples_spike.removed)
-df_influent_spike.removed_genera <- summarize_by_genus(df_influent_spike.removed)
-df_solids_spike.removed_genera <- summarize_by_genus(df_solids_spike.removed)
-
-```
-
-# Optional: Export json genus level
-```{r}
-# NOTE CHANGE THIS to export to many json files, not just one
-export_genus_abundance_to_json <- function(df, output_folder, file) {
-  # Convert to a named vector: names = Genus_Name, values = Abundance
-  aggregated_vector <- setNames(df$rpkm, df$genus.name)
-  aggregated_list   <- as.list(aggregated_vector)
-
-  # Create the output filename by stripping everything after the first dot
-  base_name <- sub("\\..*", "", basename(file))
-  out_filename <- paste0(base_name, ".json")
-  
-  # Construct full output folder path and create it if it doesn't exist
-  output_folder <- file.path("genera_json_files", subfolder)
-  dir.create(output_folder, showWarnings = FALSE, recursive = TRUE)
-  
-  # Full path for the output file
-  full_out_path <- file.path(output_folder, out_filename)
-
-  # Write JSON to file
-  write_json(aggregated_list, full_out_path, pretty = TRUE, auto_unbox = TRUE)
-
-  return(full_out_path)
-}
+df_samples_spike.rm_direct.compare <- remove_spikes(df_single_spike_samples_has_OC43_direct.compare, bcov.spike)
+df_influent_spike.rm_direct.compare <- remove_spikes(df_influent_has_OC43_direct.compare, bcov.spike)
+df_solids_spike.rm_direct.compare <- remove_spikes(df_solids_has_OC43_direct.compare, bcov.spike)
 
 ```
 
@@ -555,40 +496,104 @@ df_vsp_expanded_complete_2 <- process2(df_vsp_expanded_complete)
 df_controls_2 <- process2(df_controls)
 df_nonsamples_2 <- process2(df_nonsamples)
 
-# samples without spikes removed
+# samples without spikes rm
 df_tri_spike_samples_2 <- process2(df_tri_spike_samples)
 df_single_spike_samples_has_OC43_2 <- process2(df_single_spike_samples_has_OC43)
 df_influent_has_OC43_2 <- process2(df_influent_has_OC43)
 df_solids_has_OC43_2 <- process2(df_solids_has_OC43)
 
-# samples with spikes removed
-df_tri_spike_samples_spike.removed_2 <- process2(df_tri_spike_samples_spike.removed)
-df_samples_spike.removed_2 <- process2(df_samples_spike.removed)
-df_influent_spike.removed_2 <- process2(df_influent_spike.removed)
-df_solids_spike.removed_2 <- process2(df_solids_spike.removed)
+# samples with spikes rm
+df_tri_spike_samples_spike.rm_2 <- process2(df_tri_spike_samples_spike.rm)
+df_samples_spike.rm_2 <- process2(df_samples_spike.rm)
+df_influent_spike.rm_2 <- process2(df_influent_spike.rm)
+df_solids_spike.rm_2 <- process2(df_solids_spike.rm)
 
 
-# direct compare - 5 WWTPs - without spike removed
+# direct compare - 5 WWTPs - without spike rm
 df_single_spike_samples_has_OC43_direct.compare_2 <- process2(df_single_spike_samples_has_OC43_direct.compare)
 df_influent_has_OC43_direct.compare_2 <- process2(df_influent_has_OC43_direct.compare)
 df_solids_has_OC43_direct.compare_2 <- process2(df_solids_has_OC43_direct.compare)
 
-# direct compare - 5 WWTPs - spike removed
-df_samples_spike.removed_direct.compare_2 <- process2(df_samples_spike.removed_direct.compare)
-df_influent_spike.removed_direct.compare_2 <- process2(df_influent_spike.removed_direct.compare)
-df_solids_spike.removed_direct.compare_2 <- process2(df_solids_spike.removed_direct.compare)
+# direct compare - 5 WWTPs - spike rm
+df_samples_spike.rm_direct.compare_2 <- process2(df_samples_spike.rm_direct.compare)
+df_influent_spike.rm_direct.compare_2 <- process2(df_influent_spike.rm_direct.compare)
+df_solids_spike.rm_direct.compare_2 <- process2(df_solids_spike.rm_direct.compare)
 
 
 # with all viruses retained including ones that have no hits in df
-# samples without spikes removed, all viruses retained
+# samples without spikes rm, all viruses retained
 df_single_spike_samples_has_OC43_2_undropped <- process2(df_single_spike_samples_has_OC43, drop.absent.viruses = F)
 df_influent_has_OC43_2_undropped <- process2(df_influent_has_OC43, drop.absent.viruses = F)
 df_solids_has_OC43_2_undropped <- process2(df_solids_has_OC43, drop.absent.viruses = F)
 
-# samples with spikes removed
-df_samples_spike.removed_2_undropped <- process2(df_samples_spike.removed, drop.absent.viruses = F)
-df_influent_spike.removed_2_undropped <- process2(df_influent_spike.removed, drop.absent.viruses = F)
-df_solids_spike.removed_2_undropped <- process2(df_solids_spike.removed, drop.absent.viruses = F)
+# samples with spikes rm
+df_samples_spike.rm_2_undropped <- process2(df_samples_spike.rm, drop.absent.viruses = F)
+df_influent_spike.rm_2_undropped <- process2(df_influent_spike.rm, drop.absent.viruses = F)
+df_solids_spike.rm_2_undropped <- process2(df_solids_spike.rm, drop.absent.viruses = F)
+
+```
+
+# Optional: Consolidate to Genera and export
+```{r}
+summarize_by_genus <- function(df) {
+  df %>%
+    group_by(sample, Genus_Name) %>%
+    summarize(
+      alignedReadCount = sum(alignedReadCount, na.rm = TRUE),
+      rpkm = sum(rpkm, na.rm = TRUE),
+      .groups = "drop"
+    )
+}
+
+
+# 2) Put all your input data frames in a named list
+dfs <- list(
+  vsp_all                      = df_vsp_expanded_complete_2,   # all samples incl controls
+  controls                     = df_controls_2,
+  nonsamples                   = df_nonsamples_2,
+  
+  tri_spike_samples_inc_spikes = df_tri_spike_samples_2,
+  samples_inc_spike            = df_single_spike_samples_has_OC43_2,
+  influent_inc_spike           = df_influent_has_OC43_2,
+  solids_inc_spike             = df_solids_has_OC43_2,
+  
+  tri_spike_samples_spike_rm   = df_tri_spike_samples_spike.rm_2,
+  samples_spike_rm             = df_samples_spike.rm_2,
+  influent_spike_rm            = df_influent_spike.rm_2,
+  solids_spike_rm              = df_solids_spike.rm_2,
+  
+  # direct compare - 5 WWTPs - without spike rm
+  samples_inc_spike_direct.compare           = df_single_spike_samples_has_OC43_direct.compare_2,
+  influent_inc_spike_direct.compare          = df_influent_has_OC43_direct.compare_2,
+  solids_inc_spike_direct.compare            = df_solids_has_OC43_direct.compare_2,
+
+  # direct compare - 5 WWTPs - spike rm
+  samples_spike_rm_direct.compare            = df_samples_spike.rm_direct.compare_2,
+  influent_spike_rm_direct.compare           = df_influent_spike.rm_direct.compare_2,
+  solids_spike_rm_direct.compare             = df_solids_spike.rm_direct.compare_2
+)
+
+# 3) Summarize all of them in one shot
+dfs_genera <- map(dfs, summarize_by_genus)
+
+# 4) Export helper: write one JSON per sample
+#    Creates a subfolder per "set" name, uses sample as filename
+export_genus_jsons <- function(df, out_dir) {
+  dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+  split(df, df$sample) %>%
+    iwalk(function(d, sample_name) {
+      # named vector: names = genus, values = rpkm
+      vec <- setNames(d$rpkm, d$Genus_Name)
+      write_json(as.list(vec),
+                 file.path(out_dir, paste0(sample_name, ".json")),
+                 pretty = TRUE, auto_unbox = TRUE)
+    })
+}
+
+# 5) Export every set to its own folder
+iwalk(dfs_genera, function(df, set_name) {
+  export_genus_jsons(df, file.path("genera_json_files", set_name))
+})
 
 ```
 
@@ -758,11 +763,11 @@ only.hits <- function(df) {
 }
 
 df_single_spike_samples_has_OC43_only.hits <- only.hits(df_single_spike_samples_has_OC43_2)
-df_samples_spike.removed_only.hits <- only.hits(df_samples_spike.removed_2)
+df_samples_spike.rm_only.hits <- only.hits(df_samples_spike.rm_2)
 
 
 plot_metrics(df_single_spike_samples_has_OC43_only.hits, output_prefix = "samples.with.spike")
-plot_metrics(df_samples_spike.removed_only.hits, output_prefix = "samples.spike.removed")
+plot_metrics(df_samples_spike.rm_only.hits, output_prefix = "samples.spike.rm")
 
 ```
 
@@ -770,15 +775,15 @@ plot_metrics(df_samples_spike.removed_only.hits, output_prefix = "samples.spike.
 ```{r}
 
 full_grid <- expand.grid(
-  name = unique(df_samples_spike.removed_processed$name),
-  location = unique(df_samples_spike.removed_processed$location),
+  name = unique(df_samples_spike.rm_processed$name),
+  location = unique(df_samples_spike.rm_processed$location),
   stringsAsFactors = FALSE
 )
 
 df_virus_location_summary <- full_grid %>%
   # Count samples with alignedReadCount > 0
   left_join(
-    df_samples_spike.removed_processed %>%
+    df_samples_spike.rm_processed %>%
       filter(alignedReadCount > 0) %>%
       distinct(name, location, sample) %>%
       count(name, location, name = "sample_hits"),
@@ -787,7 +792,7 @@ df_virus_location_summary <- full_grid %>%
   replace_na(list(sample_hits = 0)) %>%
   # Get total samples per location
   left_join(
-    df_samples_spike.removed_processed %>%
+    df_samples_spike.rm_processed %>%
       distinct(location, sample) %>%
       count(location, name = "total_samples"),
     by = "location"
@@ -801,7 +806,7 @@ df_virus_location_summary <- full_grid %>%
   mutate(across(ends_with("_sample_hits"), ~replace_na(.x, 0))) %>%
   relocate(
   sort(unlist(lapply(
-    sort(unique(df_samples_spike.removed_processed$location)),
+    sort(unique(df_samples_spike.rm_processed$location)),
     function(loc) {
       c(glue("{loc}_sample_hits"), glue("{loc}_total_samples"))
     }
@@ -875,23 +880,23 @@ export_unique_hits_by_location <- function(df_input, use_abbr = FALSE, output_fi
 }
 # ----------- FUNCTION END -----------
 
-export_unique_hits_by_location(df_samples_spike.removed_processed, 
+export_unique_hits_by_location(df_samples_spike.rm_processed, 
                                use_abbr = TRUE, output_file = "unique_hits_by_location.xlsx")
 
-export_unique_hits_by_location(df_influent_spike.removed_processed, 
+export_unique_hits_by_location(df_influent_spike.rm_processed, 
                                use_abbr = FALSE, output_file = "unique_hits_by_location_influent.xlsx")
 
-export_unique_hits_by_location(df_solids_spike.removed_processed, 
+export_unique_hits_by_location(df_solids_spike.rm_processed, 
                                use_abbr = FALSE, output_file = "unique_hits_by_location_solids.xlsx")
 
 ```
 
 # analysis
 ```{r}
-namelist_influent <- unique(df_influent_spike.removed_2$name)
-namelist_solids <- unique(df_solids_spike.removed_2$name)
-namelist_influent_direct.compare <- unique(df_influent_spike.removed_direct.compare_2$name)
-namelist_solids_direct.compare <- unique(df_solids_spike.removed_direct.compare_2$name)
+namelist_influent <- unique(df_influent_spike.rm_2$name)
+namelist_solids <- unique(df_solids_spike.rm_2$name)
+namelist_influent_direct.compare <- unique(df_influent_spike.rm_direct.compare_2$name)
+namelist_solids_direct.compare <- unique(df_solids_spike.rm_direct.compare_2$name)
 
 unique_to_influent_not_in_solids <- setdiff(namelist_influent, namelist_solids)
 unique_to_solids_not_in_influent <- setdiff(namelist_solids, namelist_influent)
@@ -903,11 +908,11 @@ print(unique_to_solids_not_in_influent)
 print(unique_to_influent_not_in_solids_direct.compare)
 print(unique_to_solids_not_in_influent_direct.compare)
 
-total_rpkm_influent <- sum(df_influent_spike.removed_direct.compare_2$rpkm, na.rm = TRUE)
-total_rpkm_solids <- sum(df_solids_spike.removed_direct.compare_2$rpkm, na.rm = TRUE)
+total_rpkm_influent <- sum(df_influent_spike.rm_direct.compare_2$rpkm, na.rm = TRUE)
+total_rpkm_solids <- sum(df_solids_spike.rm_direct.compare_2$rpkm, na.rm = TRUE)
 
-total_reads_influent <- sum(df_influent_spike.removed_direct.compare_2$alignedReadCount, na.rm = TRUE)
-total_reads_solids <- sum(df_solids_spike.removed_direct.compare_2$alignedReadCount, na.rm = TRUE)
+total_reads_influent <- sum(df_influent_spike.rm_direct.compare_2$alignedReadCount, na.rm = TRUE)
+total_reads_solids <- sum(df_solids_spike.rm_direct.compare_2$alignedReadCount, na.rm = TRUE)
 
 total_rpkm_influent
 total_rpkm_solids
@@ -990,29 +995,29 @@ consolidate <- function(df, consolidation.level = c("fraction", "WWTP", "WWTP_fr
 df_influent_by.location_has.spike <- consolidate(df_influent_has_OC43_2, "WWTP") # spike intact
 df_solids_by.location_has.spike <- consolidate(df_solids_has_OC43_2, "WWTP") # spike intact
 
-df_influent_by.location_spike.removed <- consolidate(df_influent_spike.removed_2, "WWTP") # spike removed
-df_solids_by.location_spike.removed <- consolidate(df_solids_spike.removed_2, "WWTP") # spike removed
+df_influent_by.location_spike.rm <- consolidate(df_influent_spike.rm_2, "WWTP") # spike rm
+df_solids_by.location_spike.rm <- consolidate(df_solids_spike.rm_2, "WWTP") # spike rm
 
 # Summarize by fraction
 df_vsp_samples_by.fraction_has.spike <- consolidate(df_single_spike_samples_has_OC43_2, "fraction") # spike intact
-df_samples_by.fraction_spike.removed <- consolidate(df_samples_spike.removed_2, "fraction") # spike removed
+df_samples_by.fraction_spike.rm <- consolidate(df_samples_spike.rm_2, "fraction") # spike rm
 
 # Summarize by fraction and locations
 df_vsp_samples_by.WWTP.fraction_has.spike <- consolidate(df_single_spike_samples_has_OC43_2, "WWTP_fraction") # spike intact
-df_samples_by.WWTP.fraction_spike.removed <- consolidate(df_samples_spike.removed_2, "WWTP_fraction") # spike removed
+df_samples_by.WWTP.fraction_spike.rm <- consolidate(df_samples_spike.rm_2, "WWTP_fraction") # spike rm
 
 
-# direct compare - 5 WWTPs - without spike removed
+# direct compare - 5 WWTPs - without spike rm
 df_samples_by.fraction_direct.compare_has.spike <- consolidate(df_single_spike_samples_has_OC43_direct.compare_2, "fraction")
 df_single_by.WWTP.fraction_direct.compare_has.spike <- consolidate(df_single_spike_samples_has_OC43_direct.compare_2, "WWTP_fraction")
 df_influent_by.location_direct.compare_has.spike <- consolidate(df_influent_has_OC43_direct.compare_2, "WWTP")
 df_solids_by.location_direct.compare_has.spike <- consolidate(df_solids_has_OC43_direct.compare_2, "WWTP")
 
-# direct compare - 5 WWTPs - spike removed
-df_samples_by.fraction_direct.compare_spike.removed<- consolidate(df_samples_spike.removed_direct.compare_2, "fraction")
-df_single_by.WWTP.fraction_direct.compare_spike.removed <- consolidate(df_samples_spike.removed_direct.compare_2, "WWTP_fraction")
-df_influent_by.location_direct.compare_spike.removed <- consolidate(df_influent_spike.removed_direct.compare_2, "WWTP")
-df_solids_by.location_direct.compare_spike.removed <- consolidate(df_solids_spike.removed_direct.compare_2, "WWTP")
+# direct compare - 5 WWTPs - spike rm
+df_samples_by.fraction_direct.compare_spike.rm<- consolidate(df_samples_spike.rm_direct.compare_2, "fraction")
+df_single_by.WWTP.fraction_direct.compare_spike.rm <- consolidate(df_samples_spike.rm_direct.compare_2, "WWTP_fraction")
+df_influent_by.location_direct.compare_spike.rm <- consolidate(df_influent_spike.rm_direct.compare_2, "WWTP")
+df_solids_by.location_direct.compare_spike.rm <- consolidate(df_solids_spike.rm_direct.compare_2, "WWTP")
 
 
 # all viruses (undropped)
@@ -1020,12 +1025,12 @@ df_solids_by.location_direct.compare_spike.removed <- consolidate(df_solids_spik
 df_influent_by.location_has.spike_undropped <- consolidate(df_influent_has_OC43_2_undropped, "WWTP") # spike intact
 df_solids_by.location_has.spike_undropped <- consolidate(df_solids_has_OC43_2_undropped, "WWTP") # spike intact
 
-df_influent_by.location_spike.removed_undropped <- consolidate(df_influent_spike.removed_2_undropped, "WWTP") # spike removed
-df_solids_by.location_spike.removed_undropped <- consolidate(df_solids_spike.removed_2_undropped, "WWTP") # spike removed
+df_influent_by.location_spike.rm_undropped <- consolidate(df_influent_spike.rm_2_undropped, "WWTP") # spike rm
+df_solids_by.location_spike.rm_undropped <- consolidate(df_solids_spike.rm_2_undropped, "WWTP") # spike rm
 
 # Summarize by fraction
 df_vsp_samples_by.fraction_has.spike_undropped <- consolidate(df_single_spike_samples_has_OC43_2_undropped, "fraction") # spike intact
-df_samples_by.fraction_spike.removed_undropped <- consolidate(df_samples_spike.removed_2_undropped, "fraction") # spike removed
+df_samples_by.fraction_spike.rm_undropped <- consolidate(df_samples_spike.rm_2_undropped, "fraction") # spike rm
 
 ```
 
@@ -1045,9 +1050,9 @@ top_viruses <- function(df, n){
   df_top13$name <- factor(df_top13$name, levels = top_names_df$name)
   return(df_top13)
 }
-df_top13_fraction_spike.removed <- top_viruses(df_samples_by.fraction_direct.compare_spike.removed, n=13)
-df_top13_influent_spike.removed <- top_viruses(df_influent_by.location_direct.compare_spike.removed, n=13)
-df_top13_solids_spike.removed <- top_viruses(df_solids_by.location_direct.compare_spike.removed, n=13)
+df_top13_fraction_spike.rm <- top_viruses(df_samples_by.fraction_direct.compare_spike.rm, n=13)
+df_top13_influent_spike.rm <- top_viruses(df_influent_by.location_direct.compare_spike.rm, n=13)
+df_top13_solids_spike.rm <- top_viruses(df_solids_by.location_direct.compare_spike.rm, n=13)
 ```
 
 # Heatmaps - Consolidated data
@@ -1069,7 +1074,7 @@ if (!dir.exists("heatmaps")) dir.create("heatmaps")
 heatmap.tree <- function(df, consolidation.level = c("fraction", "WWTP", "WWTP_fraction"), 
                          abundance_type = c("zscore", "fraction.present", "relabund.rpkm.mean.normalized", "log.relabund.norm"), 
                          width, height, mid, low, high, vsp.label.loc = -1.5, tree.prop = 0.65, strand.prop = 0.066){
-  # df <- df_samples_by.WWTP.fraction_spike.removed
+  # df <- df_samples_by.WWTP.fraction_spike.rm
   prefix <- sub("_processed$", "", sub("^df_", "", deparse(substitute(df))))
   # Get unique taxid for each virus name
   unique.taxids <- df %>%
@@ -1201,13 +1206,13 @@ heatmap.tree <- function(df, consolidation.level = c("fraction", "WWTP", "WWTP_f
   return(final)
 }
 
-heatmap.tree(df_samples_by.WWTP.fraction_spike.removed, "WWTP_fraction", "fraction.present", w=12, h=12, mid=0.0001, low=0.0001, high=1, vsp.label.loc = -1.85, tree.prop=0.65, strand.prop=0.066)
-min(df_samples_by.WWTP.fraction_spike.removed$log.relabund.norm, na.rm = TRUE)
-heatmap.tree(df_samples_by.WWTP.fraction_spike.removed, "WWTP_fraction", "log.relabund.norm", w=12, h=12, mid=-5.7, low=-5.7, high=0, vsp.label.loc = -1.75, tree.prop=0.65, strand.prop=0.066)
+heatmap.tree(df_samples_by.WWTP.fraction_spike.rm, "WWTP_fraction", "fraction.present", w=12, h=12, mid=0.0001, low=0.0001, high=1, vsp.label.loc = -1.85, tree.prop=0.65, strand.prop=0.066)
+min(df_samples_by.WWTP.fraction_spike.rm$log.relabund.norm, na.rm = TRUE)
+heatmap.tree(df_samples_by.WWTP.fraction_spike.rm, "WWTP_fraction", "log.relabund.norm", w=12, h=12, mid=-5.7, low=-5.7, high=0, vsp.label.loc = -1.75, tree.prop=0.65, strand.prop=0.066)
 
-heatmap.tree(df_samples_by.fraction_spike.removed, "fraction", "fraction.present", w=8, h=12, mid=0.0001, low=0.0001, high=1, vsp.label.loc = -1.85, tree.prop=0.85, strand.prop=0.2)
-min(df_samples_by.fraction_spike.removed$log.relabund.norm, na.rm = TRUE)
-heatmap.tree(df_samples_by.fraction_spike.removed, "fraction", "log.relabund.norm", w=8.5, h=12, mid=-6.4, low=-6.4, high=0, vsp.label.loc = -1.75, tree.prop=0.85, strand.prop=0.2)
+heatmap.tree(df_samples_by.fraction_spike.rm, "fraction", "fraction.present", w=8, h=12, mid=0.0001, low=0.0001, high=1, vsp.label.loc = -1.85, tree.prop=0.85, strand.prop=0.2)
+min(df_samples_by.fraction_spike.rm$log.relabund.norm, na.rm = TRUE)
+heatmap.tree(df_samples_by.fraction_spike.rm, "fraction", "log.relabund.norm", w=8.5, h=12, mid=-6.4, low=-6.4, high=0, vsp.label.loc = -1.75, tree.prop=0.85, strand.prop=0.2)
 
 heatmap.tree(df_vsp_samples_by.fraction_has.spike_undropped, "fraction", "fraction.present", w=8, h=20, mid=0.0001, low=0.0001, high=1, vsp.label.loc = -1.85, tree.prop=0.85, strand.prop=0.2)
 min(df_vsp_samples_by.fraction_has.spike_undropped$log.relabund.norm, na.rm = TRUE)
@@ -1236,29 +1241,29 @@ summarize.by.strand.type <- function(df, consolidation.level = c("fraction", "WW
   return(result_df)
 }
 
-df_strand.type_by.fraction_spike.removed <- summarize.by.strand.type(df_samples_by.fraction_spike.removed, "fraction")
-df_strand.type_by.fraction_spike.removed$fraction <- factor(df_strand.type_by.fraction_spike.removed$fraction,
+df_strand.type_by.fraction_spike.rm <- summarize.by.strand.type(df_samples_by.fraction_spike.rm, "fraction")
+df_strand.type_by.fraction_spike.rm$fraction <- factor(df_strand.type_by.fraction_spike.rm$fraction,
                                                          levels = levels.fraction)
 
-df_strand.type_influent_by.wwtp_spike.removed <- summarize.by.strand.type(df_influent_by.location_spike.removed, "WWTP")
-df_strand.type_influent_by.wwtp_spike.removed$WWTP <- factor(df_strand.type_influent_by.wwtp_spike.removed$WWTP,
+df_strand.type_influent_by.wwtp_spike.rm <- summarize.by.strand.type(df_influent_by.location_spike.rm, "WWTP")
+df_strand.type_influent_by.wwtp_spike.rm$WWTP <- factor(df_strand.type_influent_by.wwtp_spike.rm$WWTP,
                                                          levels = levels.WWTP)
 
-df_strand.type_solids_by.wwtp_spike.removed <- summarize.by.strand.type(df_solids_by.location_spike.removed, "WWTP")
-df_strand.type_solids_by.wwtp_spike.removed$WWTP <- factor(df_strand.type_solids_by.wwtp_spike.removed$WWTP,
+df_strand.type_solids_by.wwtp_spike.rm <- summarize.by.strand.type(df_solids_by.location_spike.rm, "WWTP")
+df_strand.type_solids_by.wwtp_spike.rm$WWTP <- factor(df_strand.type_solids_by.wwtp_spike.rm$WWTP,
                                                          levels = levels.WWTP)
 
 
-df_strand.type_by.fraction_direct.compare_spike.removed <- summarize.by.strand.type(df_samples_by.fraction_direct.compare_spike.removed, "fraction")
-df_strand.type_by.fraction_direct.compare_spike.removed$fraction <- factor(df_strand.type_by.fraction_direct.compare_spike.removed$fraction,
+df_strand.type_by.fraction_direct.compare_spike.rm <- summarize.by.strand.type(df_samples_by.fraction_direct.compare_spike.rm, "fraction")
+df_strand.type_by.fraction_direct.compare_spike.rm$fraction <- factor(df_strand.type_by.fraction_direct.compare_spike.rm$fraction,
                                                          levels = levels.fraction)
 
-df_strand.type_influent_by.wwtp_direct.compare_spike.removed <- summarize.by.strand.type(df_influent_by.location_direct.compare_spike.removed, "WWTP")
-df_strand.type_influent_by.wwtp_direct.compare_spike.removed$fraction <- factor(df_strand.type_influent_by.wwtp_direct.compare_spike.removed$WWTP,
+df_strand.type_influent_by.wwtp_direct.compare_spike.rm <- summarize.by.strand.type(df_influent_by.location_direct.compare_spike.rm, "WWTP")
+df_strand.type_influent_by.wwtp_direct.compare_spike.rm$fraction <- factor(df_strand.type_influent_by.wwtp_direct.compare_spike.rm$WWTP,
                                                          levels = levels.WWTP)
 
-df_strand.type_solids_by.wwtp_direct.compare_spike.removed <- summarize.by.strand.type(df_solids_by.location_direct.compare_spike.removed, "WWTP")
-df_strand.type_solids_by.wwtp_direct.compare_spike.removed$fraction <- factor(df_strand.type_solids_by.wwtp_direct.compare_spike.removed$WWTP,
+df_strand.type_solids_by.wwtp_direct.compare_spike.rm <- summarize.by.strand.type(df_solids_by.location_direct.compare_spike.rm, "WWTP")
+df_strand.type_solids_by.wwtp_direct.compare_spike.rm$fraction <- factor(df_strand.type_solids_by.wwtp_direct.compare_spike.rm$WWTP,
                                                          levels = levels.WWTP)
 
 
@@ -1278,13 +1283,13 @@ plot.strand.type <- function(df, consolidation.level = c("fraction", "WWTP")) {
 
 p_strand
 }
-plot.strand.type(df_strand.type_by.fraction_spike.removed, "fraction")
-plot.strand.type(df_strand.type_influent_by.wwtp_spike.removed, "WWTP")
-plot.strand.type(df_strand.type_solids_by.wwtp_spike.removed, "WWTP")
+plot.strand.type(df_strand.type_by.fraction_spike.rm, "fraction")
+plot.strand.type(df_strand.type_influent_by.wwtp_spike.rm, "WWTP")
+plot.strand.type(df_strand.type_solids_by.wwtp_spike.rm, "WWTP")
 
-plot.strand.type(df_strand.type_by.fraction_direct.compare_spike.removed, "fraction")
-plot.strand.type(df_strand.type_influent_by.wwtp_direct.compare_spike.removed, "WWTP")
-plot.strand.type(df_strand.type_solids_by.wwtp_direct.compare_spike.removed, "WWTP")
+plot.strand.type(df_strand.type_by.fraction_direct.compare_spike.rm, "fraction")
+plot.strand.type(df_strand.type_influent_by.wwtp_direct.compare_spike.rm, "WWTP")
+plot.strand.type(df_strand.type_solids_by.wwtp_direct.compare_spike.rm, "WWTP")
 
 ```
 
@@ -1343,28 +1348,28 @@ if (!dir.exists("by_virus_consolidated")) {
 consolidated.plot.by.virus(df_influent_by.location_has.spike, "WWTP", w=15, h=10)
 consolidated.plot.by.virus(df_solids_by.location_has.spike, "WWTP", w=15, h=10)
 
-consolidated.plot.by.virus(df_influent_by.location_spike.removed, "WWTP", w=15, h=10)
-consolidated.plot.by.virus(df_solids_by.location_spike.removed, "WWTP", w=15, h=10)
+consolidated.plot.by.virus(df_influent_by.location_spike.rm, "WWTP", w=15, h=10)
+consolidated.plot.by.virus(df_solids_by.location_spike.rm, "WWTP", w=15, h=10)
 
 # By fraction
 consolidated.plot.by.virus(df_vsp_samples_by.fraction_has.spike, "fraction", w=15, h=10)
-consolidated.plot.by.virus(df_samples_by.fraction_spike.removed, "fraction", w=15, h=10)
+consolidated.plot.by.virus(df_samples_by.fraction_spike.rm, "fraction", w=15, h=10)
 
 
-# direct compare - 5 WWTPs - without spike removed
+# direct compare - 5 WWTPs - without spike rm
 consolidated.plot.by.virus(df_samples_by.fraction_direct.compare_has.spike, "fraction", w=15, h=10)
 consolidated.plot.by.virus(df_influent_by.location_direct.compare_has.spike, "WWTP", w=15, h=10)
 consolidated.plot.by.virus(df_solids_by.location_direct.compare_has.spike, "WWTP", w=15, h=10)
 
-# direct compare - 5 WWTPs - spike removed
-consolidated.plot.by.virus(df_samples_by.fraction_direct.compare_spike.removed, "fraction", w=15, h=10)
-consolidated.plot.by.virus(df_influent_by.location_direct.compare_spike.removed, "WWTP", w=15, h=10)
-consolidated.plot.by.virus(df_solids_by.location_direct.compare_spike.removed, "WWTP", w=15, h=10)
+# direct compare - 5 WWTPs - spike rm
+consolidated.plot.by.virus(df_samples_by.fraction_direct.compare_spike.rm, "fraction", w=15, h=10)
+consolidated.plot.by.virus(df_influent_by.location_direct.compare_spike.rm, "WWTP", w=15, h=10)
+consolidated.plot.by.virus(df_solids_by.location_direct.compare_spike.rm, "WWTP", w=15, h=10)
 
 # Top 13 plots
-consolidated.plot.by.virus(df_top13_fraction_spike.removed, "fraction", w=10, h=7)
-consolidated.plot.by.virus(df_top13_influent_spike.removed, "WWTP", w=10, h=7)
-consolidated.plot.by.virus(df_top13_solids_spike.removed, "WWTP", w=10, h=7)
+consolidated.plot.by.virus(df_top13_fraction_spike.rm, "fraction", w=10, h=7)
+consolidated.plot.by.virus(df_top13_influent_spike.rm, "WWTP", w=10, h=7)
+consolidated.plot.by.virus(df_top13_solids_spike.rm, "WWTP", w=10, h=7)
 
 ```
 
@@ -1434,16 +1439,16 @@ if (!dir.exists("by_virus_upset")) {
 upset.plot(df_influent_by.location_has.spike, "WWTP", w=15, h=10, t=2, b=0.5)
 upset.plot(df_solids_by.location_has.spike, "WWTP", w=15, h=10, t=2, b=0.5)
 
-upset.plot(df_influent_by.location_spike.removed, "WWTP", w=15, h=10, t=2, b=0.5)
-upset.plot(df_solids_by.location_spike.removed, "WWTP", w=15, h=10, t=2, b=0.5)
+upset.plot(df_influent_by.location_spike.rm, "WWTP", w=15, h=10, t=2, b=0.5)
+upset.plot(df_solids_by.location_spike.rm, "WWTP", w=15, h=10, t=2, b=0.5)
 
 # By fraction
 upset.plot(df_vsp_samples_by.fraction_has.spike, "fraction", w=18, h=10, t=2, b=0.17)
-upset.plot(df_samples_by.fraction_spike.removed, "fraction", w=18, h=10, t=2, b=0.17)
+upset.plot(df_samples_by.fraction_spike.rm, "fraction", w=18, h=10, t=2, b=0.17)
 
 # By WWTP and fraction
 upset.plot(df_vsp_samples_by.WWTP.fraction_has.spike, "WWTP_fraction", w=22, h=10, t=2, b=0.6)
-upset.plot(df_samples_by.WWTP.fraction_spike.removed, "WWTP_fraction", w=22, h=10, t=2, b=0.6)
+upset.plot(df_samples_by.WWTP.fraction_spike.rm, "WWTP_fraction", w=22, h=10, t=2, b=0.6)
 
 
 ```
@@ -1462,10 +1467,10 @@ summarize_by_family_consolidated <- function(df) {
     )
 }
 
-df_influent_by.location_spike.removed_family                <- summarize_by_family_consolidated(df_influent_by.location_spike.removed)
-df_influent_by.location_direct.compare_spike.removed_family <- summarize_by_family_consolidated(df_influent_by.location_direct.compare_spike.removed)
-df_solids_by.location_spike.removed_family                  <- summarize_by_family_consolidated(df_solids_by.location_spike.removed)
-df_solids_by.location_direct.compare_spike.removed_family   <- summarize_by_family_consolidated(df_solids_by.location_direct.compare_spike.removed)
+df_influent_by.location_spike.rm_family                <- summarize_by_family_consolidated(df_influent_by.location_spike.rm)
+df_influent_by.location_direct.compare_spike.rm_family <- summarize_by_family_consolidated(df_influent_by.location_direct.compare_spike.rm)
+df_solids_by.location_spike.rm_family                  <- summarize_by_family_consolidated(df_solids_by.location_spike.rm)
+df_solids_by.location_direct.compare_spike.rm_family   <- summarize_by_family_consolidated(df_solids_by.location_direct.compare_spike.rm)
 
 ```
 
@@ -1537,14 +1542,14 @@ df_summary <- df_summary %>%
 }
 ################################
 
-summary_inf_all_wwtps      <- hpi.loc.summary(df_influent_by.location_spike.removed,
-                                              df_influent_by.location_spike.removed_family, means_inf_select)
-summary_inf_direct_compare <- hpi.loc.summary(df_influent_by.location_direct.compare_spike.removed,
-                                              df_influent_by.location_direct.compare_spike.removed_family, means_inf_select)
-summary_sol_all_wwtps      <- hpi.loc.summary(df_solids_by.location_spike.removed,
-                                              df_solids_by.location_spike.removed_family, means_sol_select)
-summary_sol_direct_compare <- hpi.loc.summary(df_solids_by.location_direct.compare_spike.removed,
-                                              df_solids_by.location_direct.compare_spike.removed_family, means_sol_select)
+summary_inf_all_wwtps      <- hpi.loc.summary(df_influent_by.location_spike.rm,
+                                              df_influent_by.location_spike.rm_family, means_inf_select)
+summary_inf_direct_compare <- hpi.loc.summary(df_influent_by.location_direct.compare_spike.rm,
+                                              df_influent_by.location_direct.compare_spike.rm_family, means_inf_select)
+summary_sol_all_wwtps      <- hpi.loc.summary(df_solids_by.location_spike.rm,
+                                              df_solids_by.location_spike.rm_family, means_sol_select)
+summary_sol_direct_compare <- hpi.loc.summary(df_solids_by.location_direct.compare_spike.rm,
+                                              df_solids_by.location_direct.compare_spike.rm_family, means_sol_select)
 
 hpi_labels <- c(
   population = "Population",
@@ -1744,7 +1749,7 @@ dir.create("nonconsolidated_graphs/3.combined", showWarnings = FALSE, recursive 
 
 plots_vsp_controls <- plot_abundance(df_vsp_controls_processed, w=8, h=6.5, n=1)
 plots_vsp_nonsamples <- plot_abundance(df_vsp_nonsamples_processed, w=17, h=6.5, n=3)
-plots_vsp_tri.spike.samples_tri.spike.removed <- plot_abundance(df_tri_spike_samples_spike.removed_processed, w=8, h=7, n=1)
+plots_vsp_tri.spike.samples_tri.spike.rm <- plot_abundance(df_tri_spike_samples_spike.rm_processed, w=8, h=7, n=1)
 plots_vsp_tri.spike.samples <- plot_abundance(df_vsp_tri.spike.samples_processed, w=10, h=7, n=1)
 
 
@@ -1972,19 +1977,19 @@ dir.create("consolidated_graphs/3.combined", showWarnings = FALSE, recursive = T
 # Plot by location
 plots_vsp_influent_by_location <- plot_consolidated_abundance(df_influent_by.location_has.spike, 
                                               "WWTP", w=15, h=10, n=2) # spike intact
-plots_vsp_influent_bcov.spike.removed_by_location <- plot_consolidated_abundance(df_influent_by.location_spike.removed2, 
-                                                                 "WWTP", w=15, h=10, n=2) # spike removed
+plots_vsp_influent_bcov.spike.rm_by_location <- plot_consolidated_abundance(df_influent_by.location_spike.rm2, 
+                                                                 "WWTP", w=15, h=10, n=2) # spike rm
 plots_vsp_solids_by_location <- plot_consolidated_abundance(df_solids_by.location_has.spike, 
                                             "WWTP", w=15, h=10, n=2) # spike intact
-plots_vsp_solids_bcov.spike.removed_by_location <- plot_consolidated_abundance(df_solids_by.location_spike.removed2, 
-                                                               "WWTP", w=15, h=10, n=2) # spike removed
+plots_vsp_solids_bcov.spike.rm_by_location <- plot_consolidated_abundance(df_solids_by.location_spike.rm2, 
+                                                               "WWTP", w=15, h=10, n=2) # spike rm
 
 # Plot by fraction
 plots_vsp_samples_by_fraction <- plot_consolidated_abundance(df_vsp_samples_by.fraction_has.spike, 
                                          "fraction", w=15, h=10, n=3) # spike intact
 
-plots_vsp_samples_bcov.spike.removed_by_fraction <- plot_consolidated_abundance(df_samples_by.fraction_spike.removed2, 
-                                                            "fraction", w=15, h=10, n=3) # spike removed
+plots_vsp_samples_bcov.spike.rm_by_fraction <- plot_consolidated_abundance(df_samples_by.fraction_spike.rm2, 
+                                                            "fraction", w=15, h=10, n=3) # spike rm
 
 
 
@@ -2024,10 +2029,10 @@ scatter.single.viruses <- function(df, virus, type){
   return(p)
 }
 
-scatter.single.viruses(df_solids_spike.removed_2, virus="Human adenovirus F", type="Solids")
+scatter.single.viruses(df_solids_spike.rm_2, virus="Human adenovirus F", type="Solids")
 scatter.single.viruses(df_solids_has_OC43_2, virus=bcov.spike, type="Solids")
 
-scatter.single.viruses(df_influent_spike.removed_2, virus="Human adenovirus F", type="Influent")
+scatter.single.viruses(df_influent_spike.rm_2, virus="Human adenovirus F", type="Influent")
 scatter.single.viruses(df_influent_has_OC43_2, virus=bcov.spike, type="Influent")
 
 ```
@@ -2036,8 +2041,8 @@ scatter.single.viruses(df_influent_has_OC43_2, virus=bcov.spike, type="Influent"
 ```{r}
 sars <- "Severe acute respiratory syndrome coronavirus 2 (SARS-CoV-2)"
 
-df_sars_influent <- df_influent_spike.removed_2_undropped %>% filter(name == sars)
-df_sars_solids <- df_solids_spike.removed_2_undropped %>% filter(name == sars)
+df_sars_influent <- df_influent_spike.rm_2_undropped %>% filter(name == sars)
+df_sars_solids <- df_solids_spike.rm_2_undropped %>% filter(name == sars)
 
 df_sars_influent_2 <- df_sars_influent %>%
   left_join(
