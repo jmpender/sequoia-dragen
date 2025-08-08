@@ -1648,8 +1648,6 @@ hpi.plot <- function(df, xval, yval){
   return(p)
 }
 
-
-
 # Named list of dataframes and corresponding output subdirectories
 plot_specs <- list(
   inf_all_wwtps      = summary_inf_all_wwtps,
@@ -1658,131 +1656,35 @@ plot_specs <- list(
   sol_direct_compare = summary_sol_direct_compare
 )
 
-# Create plots for total viruses present
-pwalk(
-  .l = list(
-    df = plot_specs,
-    subdir = names(plot_specs)
-  ),
-  .f = function(df, subdir) {
-    outdir <- file.path("hpi_plots/1_total_viruses_present", subdir)
-    dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
+library(tibble)
 
-    walk(names(hpi_labels), ~ ggsave(
-      filename = file.path(outdir, paste0(.x, "_vs_total.viruses.present.pdf")),
-      plot = hpi.plot(df = df, xval = .x, yval = "total.viruses.present"),
-      width = 15, height = 13, units = "cm"
-    ))
-  }
+# What to plot, where to save it, and filename suffix
+plot_y_specs <- tribble(
+  ~yval,                         ~subdir_base,                                  ~suffix,
+  "total.viruses.present",       "1_total_viruses_present",                     "total.viruses.present",
+  "VSP_Target",                  "2_vsp_targets",                               "vsp.target",
+  "AMR",                         "3_amr_untargeted",                            "amr",
+  "total.vsp.families.present",  "4_total_families_present",                    "total.families.present",
+  "high.pandemic.families",      "5_total_high_risk_pandemic_families",         "high.pandemic.families",
+  "high.epidemic.families",      "6_total_high_risk_epidemic_families",         "high.epidemic.families",
+  "any.high.risk.families",      "7_total_high_risk_families_either",           "any.high.risk.families"
 )
 
-
-# Create plots for VSP targets
+# Make HPI vs virus data plots! Warning: generates hundreds of graphs.
+# One pass over dataset groups, one pass over Y specs, one pass over HPI x's
 pwalk(
-  .l = list(
-    df = plot_specs,
-    subdir = names(plot_specs)
-  ),
+  .l = list(df = plot_specs, subdir = names(plot_specs)),
   .f = function(df, subdir) {
-    outdir <- file.path("hpi_plots/2_vsp_targets", subdir)
-    dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
+    pmap(plot_y_specs, function(yval, subdir_base, suffix) {
+      outdir <- file.path("hpi_plots", subdir_base, subdir)
+      dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
 
-    walk(names(hpi_labels), ~ ggsave(
-      filename = file.path(outdir, paste0(.x, "_vs_vsp.target.pdf")),
-      plot = hpi.plot(df = df, xval = .x, yval = "VSP_Target"),
-      width = 15, height = 13, units = "cm"
-    ))
-  }
-)
-
-
-# Create plots for AMR
-pwalk(
-  .l = list(
-    df = plot_specs,
-    subdir = names(plot_specs)
-  ),
-  .f = function(df, subdir) {
-    outdir <- file.path("hpi_plots/3_amr_untargeted", subdir)
-    dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
-
-    walk(names(hpi_labels), ~ ggsave(
-      filename = file.path(outdir, paste0(.x, "_vs_amr.pdf")),
-      plot = hpi.plot(df = df, xval = .x, yval = "AMR"),
-      width = 15, height = 13, units = "cm"
-    ))
-  }
-)
-
-# Create plots for total families
-pwalk(
-  .l = list(
-    df = plot_specs,
-    subdir = names(plot_specs)
-  ),
-  .f = function(df, subdir) {
-    outdir <- file.path("hpi_plots/4_total_families_present", subdir)
-    dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
-
-    walk(names(hpi_labels), ~ ggsave(
-      filename = file.path(outdir, paste0(.x, "_vs_total.families.present.pdf")),
-      plot = hpi.plot(df = df, xval = .x, yval = "total.vsp.families.present"),
-      width = 15, height = 13, units = "cm"
-    ))
-  }
-)
-
-# Create plots for total families
-pwalk(
-  .l = list(
-    df = plot_specs,
-    subdir = names(plot_specs)
-  ),
-  .f = function(df, subdir) {
-    outdir <- file.path("hpi_plots/5_total_high_risk_pandemic_families", subdir)
-    dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
-
-    walk(names(hpi_labels), ~ ggsave(
-      filename = file.path(outdir, paste0(.x, "_vs_high.pandemic.families.pdf")),
-      plot = hpi.plot(df = df, xval = .x, yval = "high.pandemic.families"),
-      width = 15, height = 13, units = "cm"
-    ))
-  }
-)
-
-# Create plots for total families
-pwalk(
-  .l = list(
-    df = plot_specs,
-    subdir = names(plot_specs)
-  ),
-  .f = function(df, subdir) {
-    outdir <- file.path("hpi_plots/6_total_high_risk_epidemic_families", subdir)
-    dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
-
-    walk(names(hpi_labels), ~ ggsave(
-      filename = file.path(outdir, paste0(.x, "_vs_high.epidemic.families.pdf")),
-      plot = hpi.plot(df = df, xval = .x, yval = "high.epidemic.families"),
-      width = 15, height = 13, units = "cm"
-    ))
-  }
-)
-
-# Create plots for total families
-pwalk(
-  .l = list(
-    df = plot_specs,
-    subdir = names(plot_specs)
-  ),
-  .f = function(df, subdir) {
-    outdir <- file.path("hpi_plots/7_total_high_risk_families_either", subdir)
-    dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
-
-    walk(names(hpi_labels), ~ ggsave(
-      filename = file.path(outdir, paste0(.x, "_vs_any.high.risk.families.pdf")),
-      plot = hpi.plot(df = df, xval = .x, yval = "any.high.risk.families"),
-      width = 15, height = 13, units = "cm"
-    ))
+      walk(names(hpi_labels), ~ ggsave(
+        filename = file.path(outdir, paste0(.x, "_vs_", suffix, ".pdf")),
+        plot = hpi.plot(df = df, xval = .x, yval = yval),
+        width = 15, height = 13, units = "cm"
+      ))
+    })
   }
 )
 
