@@ -267,7 +267,7 @@ df_vsp_expanded4 <- df_vsp_expanded3 %>%
   )
 
 df_vsp_expanded4 <- df_vsp_expanded4 %>%
-  left_join(panel %>% select(Reporting_Name, Genus_Name, strand.type, taxid),
+  left_join(panel %>% select(Reporting_Name, Family_Name, Genus_Name, family_pandemic_potential, family_epidemic_potential, strand.type, taxid),
             by = c("name" = "Reporting_Name"))
 
 
@@ -479,27 +479,6 @@ df_solids_has_OC43_direct.compare <- df_solids_has_OC43 %>%
 
 ```
 
-# Optional: Export unique sample info to Excel
-```{r}
-# Subset for unique samples with relevant metadata
-df_single_spike_samples_export <- df_single_spike_samples_has_OC43 %>%
-  distinct(sample, .keep_all = TRUE) %>%
-  select(sample, fraction, WWTP, city, WWTP_fraction)
-
-df_influent_export <- df_influent_has_OC43 %>%
-  distinct(sample, .keep_all = TRUE) %>%
-  select(sample, fraction, WWTP, city, WWTP_fraction)
-
-df_solids_export <- df_solids_has_OC43 %>%
-  distinct(sample, .keep_all = TRUE) %>%
-  select(sample, fraction, WWTP, city, WWTP_fraction)
-
-# Export to xlsx
-write_xlsx(df_single_spike_samples_export, "single_spike_samples_filtered_list.xlsx")
-write_xlsx(df_influent_export, "influent_samples_filtered_list.xlsx")
-write_xlsx(df_solids_export, "solids_samples_filtered_list.xlsx")
-```
-
 # Remove spikes
 ```{r}
 remove_spikes <- function(df, spike_names) {
@@ -546,8 +525,6 @@ df_tri_spike_samples_spike.removed_genera <- summarize_by_genus(df_tri_spike_sam
 df_samples_spike.removed_genera <- summarize_by_genus(df_samples_spike.removed)
 df_influent_spike.removed_genera <- summarize_by_genus(df_influent_spike.removed)
 df_solids_spike.removed_genera <- summarize_by_genus(df_solids_spike.removed)
-
-
 
 ```
 
@@ -650,6 +627,41 @@ df_solids_has_OC43_2_undropped <- process2(df_solids_has_OC43, drop.absent.virus
 df_samples_spike.removed_2_undropped <- process2(df_samples_spike.removed, drop.absent.viruses = F)
 df_influent_spike.removed_2_undropped <- process2(df_influent_spike.removed, drop.absent.viruses = F)
 df_solids_spike.removed_2_undropped <- process2(df_solids_spike.removed, drop.absent.viruses = F)
+
+```
+
+# Export unique sample info to Excel for overall Dragen analysis (input for dragen_report.Rmd)
+```{r}
+dfs <- list(
+  single_spike_all.wwtp       = df_single_spike_samples_has_OC43_2,
+  influent_all.wwtp           = df_influent_has_OC43_2,
+  solids_all.wwtp             = df_solids_has_OC43_2,
+  
+  single_spike_direct.compare = df_single_spike_samples_has_OC43_direct.compare_2,
+  influent_direct.compare     = df_influent_has_OC43_direct.compare_2,
+  solids_direct.compare       = df_solids_has_OC43_direct.compare_2
+)
+
+# These files will be imported to dragen_report.Rmd for overall analysis
+output_filenames <- c(
+  single_spike_all.wwtp       = "single_spike_all.wwtp.xlsx",
+  influent_all.wwtp           = "influent_all.wwtp.xlsx",
+  solids_all.wwtp             = "solids_all.wwtp.xlsx",
+  
+  single_spike_direct.compare = "single_spike_direct.compare.xlsx",
+  influent_direct.compare     = "influent_direct.compare.xlsx",
+  solids_direct.compare       = "solids_direct.compare.xlsx"
+)
+
+dir.create("sample_lists", showWarnings = FALSE)
+
+# Loop and export
+for (name in names(dfs)) {
+  dfs[[name]] %>%
+    distinct(sample, .keep_all = TRUE) %>%
+    select(sample, fraction, WWTP, city, WWTP_fraction) %>%
+    write_xlsx(file.path("sample_lists", output_filenames[[name]]))
+}
 
 ```
 
@@ -999,7 +1011,7 @@ consolidate <- function(df, consolidation.level = c("fraction", "WWTP", "WWTP_fr
     ungroup()
   
   df_combined <- df_combined %>%
-    left_join(panel %>% select(Reporting_Name, Genus_Name, strand.type, taxid),
+    left_join(panel %>% select(Reporting_Name, Genus_Name, Family_Name, family_pandemic_potential, family_epidemic_potential, strand.type, taxid),
             by = c("name" = "Reporting_Name"))
   
   df_combined$name <- factor(df_combined$name, levels = df_combined %>%
@@ -1479,9 +1491,301 @@ upset.plot(df_samples_by.WWTP.fraction_spike.removed, "WWTP_fraction", w=22, h=1
 
 ```
 
+# Genus/Family level for consolidated
 ```{r}
+summarize_by_family_consolidated <- function(df) {
+  df %>%
+    group_by(WWTP, Family_Name) %>%
+    summarize(
+      relabund.rpkm.mean.normalized = sum(relabund.rpkm.mean.normalized, na.rm = TRUE),
+      present = as.integer(any(present == 1)),
+      family_pandemic_potential = first(family_pandemic_potential),
+      family_epidemic_potential = first(family_epidemic_potential),
+      .groups = "drop"
+    )
+}
+
+df_influent_by.location_spike.removed_family                <- summarize_by_family_consolidated(df_influent_by.location_spike.removed)
+df_influent_by.location_direct.compare_spike.removed_family <- summarize_by_family_consolidated(df_influent_by.location_direct.compare_spike.removed)
+df_solids_by.location_spike.removed_family                  <- summarize_by_family_consolidated(df_solids_by.location_spike.removed)
+df_solids_by.location_direct.compare_spike.removed_family   <- summarize_by_family_consolidated(df_solids_by.location_direct.compare_spike.removed)
+
+```
+
+# HPI
+```{r}
+library(ggpmisc)
+
 # Healthy Places Indexes
 hpi <- read_excel("../../inputs-sequoia/healthy-places.xlsx")
+
+# Create a lookup table
+wwtp_to_hpi_city <- tibble(
+  WWTP = c("Modesto", "Turlock", "Woodland", "Merced", "Los Banos", 
+           "City of Davis", "UC Davis", "Esparto", "Winters"),
+  hpi.city = c("Modesto", "Turlock", "Woodland", "Merced", "Los Banos", 
+               "Davis", "Davis", "Esparto", "Winters")
+)
+
+
+df_influent_means <- read_excel("../../outputs-sequoia/vsp/dragen_report_means/influent_means.xlsx")
+df_solids_means   <- read_excel("../../outputs-sequoia/vsp/dragen_report_means/solids_means.xlsx")
+
+# Filter for the means for some sources from the Dragen overall report
+filter.dragen.means <- function(df){
+  df_filter <- df %>%
+    group_by(WWTP) %>%
+    summarize(
+      AMR = relabund_mean_normalized[source_type == "Untargeted AMR"],
+      VSP_Target = relabund_mean_normalized[source_type == "VSP Target"],
+      .groups = "drop"
+    )
+  return(df_filter)
+}
+
+means_inf_select <- filter.dragen.means(df_influent_means)
+means_sol_select <- filter.dragen.means(df_solids_means)
+
+################################
+hpi.loc.summary <- function(df, family_df, means_df){
+  df_summary <- df %>%
+    group_by(WWTP) %>%
+    summarize(
+      total.viruses.present = sum(as.numeric(present), na.rm = TRUE),
+      .groups = "drop"
+    )
+  
+   df_summary_family <- family_df %>%
+    group_by(WWTP) %>%
+    summarize(
+      total.vsp.families.present = sum(as.numeric(present), na.rm = TRUE),
+
+      # counts of families present with High pandemic / epidemic potential
+      high.pandemic.families = sum(as.integer(present == 1 & family_pandemic_potential == "High"), na.rm = TRUE),
+      high.epidemic.families = sum(as.integer(present == 1 & family_epidemic_potential == "High"), na.rm = TRUE),
+
+      # families present that are High in either category (union, not double-counted)
+      any.high.risk.families = sum(as.integer(
+        present == 1 & (family_pandemic_potential == "High" | family_epidemic_potential == "High")
+      ), na.rm = TRUE),
+      .groups = "drop"
+    )
+  
+df_summary <- df_summary %>%
+  left_join(wwtp_to_hpi_city, by = "WWTP") %>%
+  left_join(df_summary_family, by = "WWTP") %>%
+  left_join(means_df, by = "WWTP") %>%
+  left_join(hpi, by = c("hpi.city" = "name"))
+
+  return(df_summary)
+}
+################################
+
+summary_inf_all_wwtps      <- hpi.loc.summary(df_influent_by.location_spike.removed,
+                                              df_influent_by.location_spike.removed_family, means_inf_select)
+summary_inf_direct_compare <- hpi.loc.summary(df_influent_by.location_direct.compare_spike.removed,
+                                              df_influent_by.location_direct.compare_spike.removed_family, means_inf_select)
+summary_sol_all_wwtps      <- hpi.loc.summary(df_solids_by.location_spike.removed,
+                                              df_solids_by.location_spike.removed_family, means_sol_select)
+summary_sol_direct_compare <- hpi.loc.summary(df_solids_by.location_direct.compare_spike.removed,
+                                              df_solids_by.location_direct.compare_spike.removed_family, means_sol_select)
+
+hpi_labels <- c(
+  population = "Population",
+  hpi.score_percentile = "Healthy Places Index (Percentile)",
+  economic.overall_percentile = "Economic Index (Percentile)",
+  above.poverty_percentile = "Above Poverty (Percentile)",
+  employed_percentile = "Employed (Percentile)",
+  percapitaincome_percentile = "Per Capita Income (Percentile)",
+  education.overall_percentile = "Education (Percentile)",
+  bachelorsedorhigher_percentile = "Bachelor's Ed or Higher (Percentile)",
+  housing.overall_percentile = "Housing (Percentile)",
+  housing.habitability_percentile = "Housing Habitability (Percentile)",
+  uncrowded_percentile = "Uncrowded (Percentile)",
+  clean.enviro.overall_percentile = "Clean Environment (Percentile)",
+  h2o.contam_percentile = "Water Contamination (Percentile)",
+  insurance.overall_percentile = "Insurance (Percentile)",
+  insured.adults_percentile = "Insured Adults (Percentile)",
+  social_percentile = "Social (Percentile)",
+  race.ethnicity.diversity_percentile = "Race/Ethnicity Diversity Index (Percentile)"
+)
+
+dragen_labels <- c(
+  total.viruses.present = "Total Number of VSP Viruses Present",
+  AMR = "Untargeted AMR Relative Abundance of Reads",
+  VSP_Target = "Relative Abundance (Reads) of VSP Targets",
+  total.vsp.families.present = "Total Number of Families Present (VSP panel)",
+  high.pandemic.families = "High Pandemic-Potential Families (count)",
+  high.epidemic.families = "High Epidemic-Potential Families (count)",
+  any.high.risk.families = "Any High-Risk Families (count)"
+)
+
+hpi.plot <- function(df, xval, yval){
+  # Get axis labels from hpi_labels and dragen_labels
+  xlab <- hpi_labels[[xval]] %||% xval
+  ylab <- dragen_labels[[yval]] %||% yval
+  
+  df <- df %>%
+    mutate(
+      across(all_of(c(xval, yval)), ~ as.numeric(.))
+    )
+  
+  p <- ggplot(df, aes(x = .data[[xval]], y = .data[[yval]])) +
+    geom_point(size = 3) +
+    geom_smooth(method = "lm", se = TRUE, color = "blue") +
+    stat_poly_eq(
+      aes(label = paste(..eq.label.., ..rr.label.., ..p.value.label.., sep = "~~~")),
+      formula = y ~ x,
+      parse = TRUE,
+      label.x = "right",
+      label.y = "top"
+    ) +
+    geom_text(aes(label = hpi.city), vjust = -0.7, size = 3.5) +
+    scale_x_continuous(name = xlab) +
+    scale_y_continuous(name = ylab) +
+    theme_minimal()
+
+  return(p)
+}
+
+
+
+# Named list of dataframes and corresponding output subdirectories
+plot_specs <- list(
+  inf_all_wwtps      = summary_inf_all_wwtps,
+  inf_direct_compare = summary_inf_direct_compare,
+  sol_all_wwtps      = summary_sol_all_wwtps,
+  sol_direct_compare = summary_sol_direct_compare
+)
+
+# Create plots for total viruses present
+pwalk(
+  .l = list(
+    df = plot_specs,
+    subdir = names(plot_specs)
+  ),
+  .f = function(df, subdir) {
+    outdir <- file.path("hpi_plots/1_total_viruses_present", subdir)
+    dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
+
+    walk(names(hpi_labels), ~ ggsave(
+      filename = file.path(outdir, paste0(.x, "_vs_total.viruses.present.pdf")),
+      plot = hpi.plot(df = df, xval = .x, yval = "total.viruses.present"),
+      width = 15, height = 13, units = "cm"
+    ))
+  }
+)
+
+
+# Create plots for VSP targets
+pwalk(
+  .l = list(
+    df = plot_specs,
+    subdir = names(plot_specs)
+  ),
+  .f = function(df, subdir) {
+    outdir <- file.path("hpi_plots/2_vsp_targets", subdir)
+    dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
+
+    walk(names(hpi_labels), ~ ggsave(
+      filename = file.path(outdir, paste0(.x, "_vs_vsp.target.pdf")),
+      plot = hpi.plot(df = df, xval = .x, yval = "VSP_Target"),
+      width = 15, height = 13, units = "cm"
+    ))
+  }
+)
+
+
+# Create plots for AMR
+pwalk(
+  .l = list(
+    df = plot_specs,
+    subdir = names(plot_specs)
+  ),
+  .f = function(df, subdir) {
+    outdir <- file.path("hpi_plots/3_amr_untargeted", subdir)
+    dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
+
+    walk(names(hpi_labels), ~ ggsave(
+      filename = file.path(outdir, paste0(.x, "_vs_amr.pdf")),
+      plot = hpi.plot(df = df, xval = .x, yval = "AMR"),
+      width = 15, height = 13, units = "cm"
+    ))
+  }
+)
+
+# Create plots for total families
+pwalk(
+  .l = list(
+    df = plot_specs,
+    subdir = names(plot_specs)
+  ),
+  .f = function(df, subdir) {
+    outdir <- file.path("hpi_plots/4_total_families_present", subdir)
+    dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
+
+    walk(names(hpi_labels), ~ ggsave(
+      filename = file.path(outdir, paste0(.x, "_vs_total.families.present.pdf")),
+      plot = hpi.plot(df = df, xval = .x, yval = "total.vsp.families.present"),
+      width = 15, height = 13, units = "cm"
+    ))
+  }
+)
+
+# Create plots for total families
+pwalk(
+  .l = list(
+    df = plot_specs,
+    subdir = names(plot_specs)
+  ),
+  .f = function(df, subdir) {
+    outdir <- file.path("hpi_plots/5_total_high_risk_pandemic_families", subdir)
+    dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
+
+    walk(names(hpi_labels), ~ ggsave(
+      filename = file.path(outdir, paste0(.x, "_vs_high.pandemic.families.pdf")),
+      plot = hpi.plot(df = df, xval = .x, yval = "high.pandemic.families"),
+      width = 15, height = 13, units = "cm"
+    ))
+  }
+)
+
+# Create plots for total families
+pwalk(
+  .l = list(
+    df = plot_specs,
+    subdir = names(plot_specs)
+  ),
+  .f = function(df, subdir) {
+    outdir <- file.path("hpi_plots/6_total_high_risk_epidemic_families", subdir)
+    dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
+
+    walk(names(hpi_labels), ~ ggsave(
+      filename = file.path(outdir, paste0(.x, "_vs_high.epidemic.families.pdf")),
+      plot = hpi.plot(df = df, xval = .x, yval = "high.epidemic.families"),
+      width = 15, height = 13, units = "cm"
+    ))
+  }
+)
+
+# Create plots for total families
+pwalk(
+  .l = list(
+    df = plot_specs,
+    subdir = names(plot_specs)
+  ),
+  .f = function(df, subdir) {
+    outdir <- file.path("hpi_plots/7_total_high_risk_families_either", subdir)
+    dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
+
+    walk(names(hpi_labels), ~ ggsave(
+      filename = file.path(outdir, paste0(.x, "_vs_any.high.risk.families.pdf")),
+      plot = hpi.plot(df = df, xval = .x, yval = "any.high.risk.families"),
+      width = 15, height = 13, units = "cm"
+    ))
+  }
+)
+
 ```
 
 # Non-consolidated abundance - controls, weird samples

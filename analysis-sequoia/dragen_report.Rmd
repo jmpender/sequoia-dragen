@@ -29,9 +29,13 @@ library(grid)
 
 dragen_report <- read_excel("../../inputs-sequoia/dragen_report.xlsx")
 
-single_spike_samples_filtered <- read_excel("../../inputs-sequoia/single_spike_samples_filtered_list.xlsx")
-influent_samples_filtered <- read_excel("../../inputs-sequoia/influent_samples_filtered_list.xlsx")
-solids_samples_filtered <- read_excel("../../inputs-sequoia/solids_samples_filtered_list.xlsx")
+single_spike_all.wwtp <- read_excel("../../outputs-sequoia/vsp/sample_lists/single_spike_all.wwtp.xlsx")
+influent_all.wwtp <- read_excel("../../outputs-sequoia/vsp/sample_lists/influent_all.wwtp.xlsx")
+solids_all.wwtp <- read_excel("../../outputs-sequoia/vsp/sample_lists/solids_all.wwtp.xlsx")
+
+single_spike_direct.compare <- read_excel("../../outputs-sequoia/vsp/sample_lists/single_spike_direct.compare.xlsx")
+influent_direct.compare <- read_excel("../../outputs-sequoia/vsp/sample_lists/influent_direct.compare.xlsx")
+solids_direct.compare <- read_excel("../../outputs-sequoia/vsp/sample_lists/solids_direct.compare.xlsx")
 
 ```
 
@@ -41,6 +45,7 @@ name_map <- c(
   "Abs Targeted Viral"                      = "VSP Target",
   "Abs Untargeted Viral (Other)"            = "Untargeted Viral (Other)",
   "Abs Untargeted Viral (Phage)"            = "Untargeted Viral (Phage)",
+  "Abs Untargeted AMR"                      = "Untargeted AMR",
   "Abs Untargeted Fungal (Other)"           = "Untargeted Fungal (Other)",
   "Abs Untargeted Fungal (Ribosomal DNA)"   = "Untargeted Fungal (Ribosomal DNA)",
   "Abs Untargeted Parasitic (Other)"        = "Untargeted Parasitic (Other)",
@@ -62,118 +67,135 @@ df_dragen <- dragen_report %>%
 
 ```
 
+# filter df_dragen to just those in each list of samples
 ```{r}
-df_dragen_samples <- df_dragen %>%
-  filter(Accession %in% single_spike_samples_filtered$sample) %>%
-  left_join(
-    single_spike_samples_filtered_list %>%
-      select(sample, fraction, WWTP, city, WWTP_fraction),
-    by = c("Accession" = "sample")
-  )
+filter.to.sample.list <- function(df) {
+  df_dragen %>%
+    filter(Accession %in% df$sample) %>%
+    left_join(
+      df %>%
+        select(sample, fraction, WWTP, city, WWTP_fraction),
+      by = c("Accession" = "sample")
+    )
+}
 
-df_dragen_influent <- df_dragen %>%
-  filter(Accession %in% influent_samples_filtered$sample) %>%
-  left_join(
-    single_spike_samples_filtered_list %>%
-      select(sample, fraction, WWTP, city, WWTP_fraction),
-    by = c("Accession" = "sample")
-  )
+df_dragen_single_spike_all.wwtp <- filter.to.sample.list(single_spike_all.wwtp)
+df_dragen_influent_all.wwtp     <- filter.to.sample.list(influent_all.wwtp)
+df_dragen_solids_all.wwtp       <- filter.to.sample.list(solids_all.wwtp)
 
-df_dragen_solids <- df_dragen %>%
-  filter(Accession %in% solids_samples_filtered$sample) %>%
-  left_join(
-    single_spike_samples_filtered_list %>%
-      select(sample, fraction, WWTP, city, WWTP_fraction),
-    by = c("Accession" = "sample")
-  )
+df_dragen_single_spike_direct.compare <- filter.to.sample.list(single_spike_direct.compare)
+df_dragen_influent_direct.compare     <- filter.to.sample.list(influent_direct.compare)
+df_dragen_solids_direct.compare       <- filter.to.sample.list(solids_direct.compare)
 
 ```
 
 # Consolidate dataframes by type
 ```{r}
-
-df_fraction_means <- df_dragen_samples %>%
-  group_by(fraction) %>%
-  summarize(across(
-    .cols = !any_of(c("Accession", "fraction", "WWTP", "city", "WWTP_fraction", "sum")),
-    .fns = \(x) mean(x, na.rm = TRUE)
-  ), .groups = "drop") %>%
-  pivot_longer(
-    cols = -fraction,
-    names_to = "source_type",
-    values_to = "relabund_mean"
-  ) %>%
-  group_by(fraction) %>%
-  mutate(relabund_mean_normalized = relabund_mean / sum(relabund_mean, na.rm = TRUE)) %>%
-  ungroup()
-
-df_WWTP_fraction_means <- df_dragen_samples %>%
-  group_by(WWTP_fraction) %>%
-  summarize(across(
-    .cols = !any_of(c("Accession", "fraction", "WWTP", "city", "WWTP_fraction", "sum")),
-    .fns = \(x) mean(x, na.rm = TRUE)
-  ), .groups = "drop") %>%
-  pivot_longer(
-    cols = -WWTP_fraction,
-    names_to = "source_type",
-    values_to = "relabund_mean"
-  ) %>%
-  group_by(WWTP_fraction) %>%
-  mutate(relabund_mean_normalized = relabund_mean / sum(relabund_mean, na.rm = TRUE)) %>%
-  ungroup()
-
-df_influent_means <- df_dragen_influent %>%
-  group_by(WWTP) %>%
-  summarize(across(
-    .cols = !any_of(c("Accession", "fraction", "WWTP", "city", "WWTP_fraction", "sum")),
-    .fns = \(x) mean(x, na.rm = TRUE)
-  ), .groups = "drop") %>%
-  pivot_longer(
-    cols = -WWTP,
-    names_to = "source_type",
-    values_to = "relabund_mean"
-  ) %>%
-  group_by(WWTP) %>%
-  mutate(relabund_mean_normalized = relabund_mean / sum(relabund_mean, na.rm = TRUE)) %>%
-  ungroup()
-
-df_solids_means <- df_dragen_solids %>%
-  group_by(WWTP) %>%
-  summarize(across(
-    .cols = !any_of(c("Accession", "fraction", "WWTP", "city", "WWTP_fraction", "sum")),
-    .fns = \(x) mean(x, na.rm = TRUE)
-  ), .groups = "drop") %>%
-  pivot_longer(
-    cols = -WWTP,
-    names_to = "source_type",
-    values_to = "relabund_mean"
-  ) %>%
-  group_by(WWTP) %>%
-  mutate(relabund_mean_normalized = relabund_mean / sum(relabund_mean, na.rm = TRUE)) %>%
-  ungroup()
-
-
-
-```
-
-
-```{r}
 source_order <- c("VSP Target", "Untargeted Viral (Other)", "Untargeted Viral (Phage)", 
-                  "Untargeted Fungal (Other)", "Untargeted Fungal (Ribosomal DNA)", 
+                  "Untargeted AMR",
                   "Untargeted Parasitic (Other)", "Untargeted Parasitic (Ribosomal DNA)",
+                  "Untargeted Fungal (Other)", "Untargeted Fungal (Ribosomal DNA)", 
                   "Untargeted Human (Other)", "Untargeted Human (Coding Sequence)", "Untargeted Human (Ribosomal DNA)",
                   "Ambiguous", "Unclassified", "Low Complexity",
                   "Untargeted Bacterial (Plasmid)", "Untargeted Bacterial (Ribosomal DNA)", "Untargeted Bacterial (Other)"
                   )
 
 source_colors <- c("VSP Target" = "#CC3311", "Untargeted Viral (Other)" = "#EE7733", "Untargeted Viral (Phage)" = "#F49B66", 
-                  "Untargeted Fungal (Other)" = "#009988", "Untargeted Fungal (Ribosomal DNA)" = "#66CFC0", 
+                  "Untargeted AMR" = "#0077BB",
                   "Untargeted Parasitic (Other)" = "#EE3377", "Untargeted Parasitic (Ribosomal DNA)" = "#F599B8",
-                  "Untargeted Human (Other)" = "#0077BB", "Untargeted Human (Coding Sequence)" = "#66BBDD", "Untargeted Human (Ribosomal DNA)" = "#99D0EE",
+                  "Untargeted Fungal (Other)" = "#009988", "Untargeted Fungal (Ribosomal DNA)" = "#66CFC0", 
+                  "Untargeted Human (Other)" = "#CCAA44", "Untargeted Human (Coding Sequence)" = "#EECC66", "Untargeted Human (Ribosomal DNA)" = "#FAF1CC",
                   "Ambiguous" = "#BBBBBB", "Unclassified" = "#DDDDDD", "Low Complexity" = "#EEEEEE",
                   "Untargeted Bacterial (Plasmid)" = "#33BBEE", "Untargeted Bacterial (Ribosomal DNA)" = "#99DEF7", "Untargeted Bacterial (Other)" = "#BFEAFB"
                   )
 
+levels <- c("UC Davis", "City of Davis", "Esparto", "Los Banos", "Turlock", "Winters", "Woodland", "Merced", "Modesto",
+            "UC Davis - Influent", "City of Davis - Solids", "Esparto - Influent", "Esparto - Solids",
+            "Los Banos - Influent", "Los Banos - Solids", "Turlock - Influent", "Turlock - Solids", 
+            "Winters - Influent", "Winters - Solids", "Woodland - Influent", "Woodland - Solids", "Merced - Solids", "Modesto - Solids",
+            "Influent", "Solids")
+
+compute_means <- function(df, consolidation.level) {
+  df_means <- df %>%
+    group_by(.data[[consolidation.level]]) %>%
+    summarize(across(
+      .cols = !any_of(c("Accession", "fraction", "WWTP", "city", "WWTP_fraction", "sum")),
+      .fns = ~ mean(.x, na.rm = TRUE)
+    ), .groups = "drop") %>%
+    pivot_longer(
+      cols = -all_of(consolidation.level),
+      names_to = "source_type",
+      values_to = "relabund_mean"
+    ) %>%
+    group_by(.data[[consolidation.level]]) %>%
+    mutate(relabund_mean_normalized = relabund_mean / sum(relabund_mean, na.rm = TRUE)) %>%
+    ungroup()
+  
+  df_means$source_type <- factor(df_means$source_type, levels = rev(source_order))
+  df_means[[consolidation.level]] <- factor(df_means[[consolidation.level]], levels = levels)
+  return(df_means)
+}
+
+df_fraction_means_all.wwtps      <- compute_means(df_dragen_single_spike_all.wwtp, "fraction")
+df_WWTP_fraction_means_all.wwtps <- compute_means(df_dragen_single_spike_all.wwtp, "WWTP_fraction")
+df_influent_means_all.wwtps      <- compute_means(df_dragen_influent_all.wwtp, "WWTP")
+df_solids_means_all.wwtps        <- compute_means(df_dragen_solids_all.wwtp, "WWTP")
+
+df_fraction_means_direct.compare      <- compute_means(df_dragen_single_spike_direct.compare, "fraction")
+df_WWTP_fraction_means_direct.compare <- compute_means(df_dragen_single_spike_direct.compare, "WWTP_fraction")
+df_influent_means_direct.compare      <- compute_means(df_dragen_influent_direct.compare, "WWTP")
+df_solids_means_direct.compare        <- compute_means(df_dragen_solids_direct.compare, "WWTP")
+
+dir.create("dragen_report_means", showWarnings = FALSE)
+write_xlsx(df_influent_means_all.wwtps, "dragen_report_means/influent_means.xlsx")
+write_xlsx(df_solids_means_all.wwtps, "dragen_report_means/solids_means.xlsx")
+
 ```
+
+# Bar graphs
+```{r}
+plot_bar <- function(df, xvar, ylimit) {
+  ggplot(df, aes(x = .data[[xvar]], y = relabund_mean_normalized, fill = source_type)) +
+    geom_bar(stat = "identity") +
+    scale_fill_manual(values = source_colors) +
+    labs(
+      x = NULL,
+      y = "Mean Relative Abundance (Reads)",
+      fill = "Source Type"
+    ) +
+    theme_minimal() +
+    {if (!is.null(ylimit)) scale_y_continuous(limits = ylimit, oob = scales::oob_squish) else NULL} +
+    theme(
+      axis.text.x = element_text(
+        angle = ifelse(xvar == "fraction", 0, 45),
+        hjust = ifelse(xvar == "fraction", 0.5, 1),
+        size = 12,
+        color = "black"
+      ),
+      panel.grid.minor = element_blank()
+    )
+}
+
+# Plots including all WWTP locations
+# Solids vs influent:
+plot_bar(df_fraction_means_all.wwtps, "fraction", ylimit = c(0, 1))
+plot_bar(df_fraction_means_all.wwtps, "fraction", ylimit = c(0, 0.4))
+
+plot_bar(df_WWTP_fraction_means_all.wwtps, "WWTP_fraction", ylimit = c(0, 0.4))
+plot_bar(df_influent_means_all.wwtps, "WWTP", ylimit = c(0, 0.4))
+plot_bar(df_solids_means_all.wwtps, "WWTP", ylimit = c(0, 0.4))
+
+# Direct-comparison plots
+# Solids vs influent:
+plot_bar(df_fraction_means_direct.compare, "fraction", ylimit = c(0, 0.4))
+plot_bar(df_fraction_means_direct.compare, "fraction", ylimit = c(0, 0.4))
+
+plot_bar(df_WWTP_fraction_means_direct.compare, "WWTP_fraction", ylimit = c(0, 0.4))
+plot_bar(df_influent_means_direct.compare, "WWTP", ylimit = c(0, 0.4))
+plot_bar(df_solids_means_direct.compare, "WWTP", ylimit = c(0, 0.4))
+
+```
+
+
 
 
