@@ -419,9 +419,11 @@ df_no_OC43 <- df_single_spike_samples %>% # Gets all sample IDs where OC43 has a
     (alignedReadCount > 0)
   )
 
+(no_OC43_samples <- unique(df_no_OC43$sample))
+
 # Takes out rows that do not have the BCoV spike-in
 df_single_spike_samples_has_OC43 <- df_single_spike_samples %>%
-  filter(!sample %in% unique(df_no_OC43$sample))
+  filter(!sample %in% no_OC43_samples)
   
 # Grabs samples names that end with INF or SOL. Does not include 0718-WOD-INF- replicates
 df_influent_has_OC43 <- df_single_spike_samples_has_OC43 %>% filter(fraction == "Influent")
@@ -545,38 +547,35 @@ summarize_by_genus <- function(df) {
     )
 }
 
-
-# 2) Put all your input data frames in a named list
+# Put all input data frames in a named list which will be used for export
 dfs <- list(
-  vsp_all                      = df_vsp_expanded_complete_2,   # all samples incl controls
-  controls                     = df_controls_2,
-  nonsamples                   = df_nonsamples_2,
+  vsp_all                           = df_vsp_expanded_complete_2,   # all samples incl controls
+  controls                          = df_controls_2,
+  nonsamples                        = df_nonsamples_2,
   
-  tri_spike_samples_inc_spikes = df_tri_spike_samples_2,
-  samples_inc_spike            = df_single_spike_samples_has_OC43_2,
-  influent_inc_spike           = df_influent_has_OC43_2,
-  solids_inc_spike             = df_solids_has_OC43_2,
+  tri_spike_samples_inc_spikes      = df_tri_spike_samples_2,
+  samples_inc_spike                 = df_single_spike_samples_has_OC43_2,
+  influent_inc_spike                = df_influent_has_OC43_2,
+  solids_inc_spike                  = df_solids_has_OC43_2,
   
-  tri_spike_samples_spike_rm   = df_tri_spike_samples_spike.rm_2,
-  samples_spike_rm             = df_samples_spike.rm_2,
-  influent_spike_rm            = df_influent_spike.rm_2,
-  solids_spike_rm              = df_solids_spike.rm_2,
+  tri_spike_samples_spike_rm        = df_tri_spike_samples_spike.rm_2,
+  samples_spike_rm                  = df_samples_spike.rm_2,
+  influent_spike_rm                 = df_influent_spike.rm_2,
+  solids_spike_rm                   = df_solids_spike.rm_2,
   
-  # direct compare - 5 WWTPs - without spike rm
-  samples_inc_spike_direct.compare           = df_single_spike_samples_has_OC43_direct.compare_2,
-  influent_inc_spike_direct.compare          = df_influent_has_OC43_direct.compare_2,
-  solids_inc_spike_direct.compare            = df_solids_has_OC43_direct.compare_2,
+  samples_inc_spike_direct.compare  = df_single_spike_samples_has_OC43_direct.compare_2,
+  influent_inc_spike_direct.compare = df_influent_has_OC43_direct.compare_2,
+  solids_inc_spike_direct.compare   = df_solids_has_OC43_direct.compare_2,
 
-  # direct compare - 5 WWTPs - spike rm
-  samples_spike_rm_direct.compare            = df_samples_spike.rm_direct.compare_2,
-  influent_spike_rm_direct.compare           = df_influent_spike.rm_direct.compare_2,
-  solids_spike_rm_direct.compare             = df_solids_spike.rm_direct.compare_2
+  samples_spike_rm_direct.compare   = df_samples_spike.rm_direct.compare_2,
+  influent_spike_rm_direct.compare  = df_influent_spike.rm_direct.compare_2,
+  solids_spike_rm_direct.compare    = df_solids_spike.rm_direct.compare_2
 )
 
 # 3) Summarize all of them in one shot
 dfs_genera <- map(dfs, summarize_by_genus)
 
-# 4) Export helper: write one JSON per sample
+# 4) Export function: write one JSON per sample
 #    Creates a subfolder per "set" name, uses sample as filename
 export_genus_jsons <- function(df, out_dir) {
   dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
@@ -634,46 +633,77 @@ for (name in names(dfs)) {
 
 # Number of samples and viable samples per location
 ```{r}
-summarize_samples <- function(df){
-  df <- df %>%
+df_all_sample_summary <- df_single_spike_samples %>%
     group_by(fraction, WWTP) %>%
-    summarise(unique_samples = n_distinct(sample)) %>%
+    summarize(unique_samples_all = n_distinct(sample)) %>%
     arrange(fraction, WWTP)
-  return(df)
-}
 
-df_all_sample_summary <- summarize_samples(df_vsp_expanded_complete)
-df_all_viable_sample_summary <- summarize_samples(df_single_spike_samples_has_OC43)
+df_all_viable_sample_summary <- df_single_spike_samples_has_OC43 %>%
+    group_by(fraction, WWTP) %>%
+    summarize(unique_samples_viable = n_distinct(sample)) %>%
+    arrange(fraction, WWTP)
+
+df_joined_sample_summary <- full_join(
+  df_all_sample_summary,
+  df_all_viable_sample_summary,
+  by = c("fraction", "WWTP")
+)
 
 ```
 
-# BCoVscatterplot
+# BCoVscatterplot - "Is the correlation between BCoV ddPCR and sequencing RPKM strong enough for normalization, via the R^2 value? - A: No"
 ```{r}
 df_bcov_samples <- df_vsp_expanded_complete_2 %>%
   filter(name == bcov.spike)
 
-df_bcov_influent <- df_influent_has_OC43_direct.compare_2 %>%
+df_bcov_influent <- df_influent_has_OC43_2 %>%
   filter(name == bcov.spike)
 
-df_bcov_solids <- df_solids_has_OC43_direct.compare_2 %>%
+df_bcov_influent_direct.compare <- df_influent_has_OC43_direct.compare_2 %>%
   filter(name == bcov.spike)
 
+df_bcov_solids <- df_solids_has_OC43_2 %>%
+  filter(name == bcov.spike)
+
+df_bcov_solids_direct.compare <- df_solids_has_OC43_direct.compare_2 %>%
+  filter(name == bcov.spike)
+
+# ---- Plot BCoV RPKM for each sample ----
+plot.bcov.samples <- function(df){
+  p <- ggplot(df, aes(x = bcov_rpkm, y = sample)) +
+    geom_point() +
+    theme_minimal()
+  
+  return(p)
+}
+plot.bcov.samples(df_bcov_influent)
+plot.bcov.samples(df_bcov_solids)
+
+# ---- filter solids because some have unusually high RPKM for their group ----
 df_bcov_solids_filtered <- df_bcov_solids %>%
   filter(bcov_rpkm < 1000)
 
-ggplot(df_bcov_solids, aes(x = sample, y = bcov_rpkm)) +
-  geom_point() +
-  geom_smooth(method = "lm", se = FALSE, color = "red") +
-  stat_regline_equation(
-    aes(label = ..eq.label..), 
-    label.x = 2, label.y = .005
-  ) +
-  stat_cor(
-    aes(label = paste(..rr.label.., ..p.label.., sep = "~`,`~")),
-    label.x = 2, label.y = .004
-  ) +
-  theme_minimal()
+df_bcov_solids_direct.compare_filtered <- df_bcov_solids_direct.compare %>%
+  filter(bcov_rpkm < 1000)
 
+# ---- Plot ddPCR ----
+plot.bcov.ddpcr <- function(df, xlab, ylab.eq){
+  p <- ggplot(df, aes(x = BCoV.ddpcr.recovery, y = bcov_rpkm)) +
+    geom_point() +
+    geom_smooth(method = "lm", se = FALSE, color = "red") +
+    stat_regline_equation(
+      aes(label = ..eq.label..), 
+      label.x = 2, label.y = ylab.eq
+    ) +
+    stat_cor(
+      aes(label = paste(..rr.label.., ..p.label.., sep = "~`,`~")),
+      label.x = 2, label.y = 2
+    ) +
+    theme_minimal()
+  return(p)
+}
+plot.bcov.ddpcr(df_bcov_influent_direct.compare, ylab.eq=500)
+plot.bcov.ddpcr(df_bcov_solids_direct.compare_filtered, ylab.eq=5)
 
 ```
 
